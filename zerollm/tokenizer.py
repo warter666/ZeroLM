@@ -49,7 +49,9 @@ class Tokenizer:
         # merge rank:越早的 pair rank 越小,encode 时先合并
         self.merge_ranks = {pair: i for i, pair in enumerate(self.merges)}
         # 预 token -> id 列表 的缓存(中文语料高度重复,缓存收益很大)
+        # 上限防止在超大规模语料上无限增长(多进程编码时每个 worker 各有一份)
         self._cache: dict[bytes, tuple[int, ...]] = {}
+        self._cache_limit = 2_000_000
 
         # special token 正则:按长度倒序,保证最长匹配优先
         self._special_len = max((len(s) for s in self.special_tokens), default=0)
@@ -137,6 +139,8 @@ class Tokenizer:
             cached = self._cache.get(b)
             if cached is None:
                 cached = tuple(self._encode_pretoken(b))
+                if len(self._cache) >= self._cache_limit:
+                    self._cache.clear()
                 self._cache[b] = cached
             ids.extend(cached)
         return ids
