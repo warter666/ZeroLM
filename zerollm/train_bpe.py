@@ -7,8 +7,11 @@
 - 中文语料沿用 GPT-2 预分词正则:` ?\p{L}+` 对汉字连续串天然有效,空白/标点单独切分。
 """
 
-import regex as re
+import sys
+import time
 from collections import Counter
+
+import regex as re
 
 # GPT-2 风格预分词:英文缩写 / 字母串 / 数字串 / 标点 / 尾随空格处理
 # r""" 需要显式写;` ?\p{L}+` 对汉字连续串天然有效
@@ -61,6 +64,7 @@ def train_bpe(
     vocab_size: int,
     special_tokens: list[str],
     pattern: str = gpt2pat,
+    log_every: int = 0,
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     """训练 BPE,返回 (vocab, merges)。
 
@@ -84,6 +88,7 @@ def train_bpe(
                 tail = parts.pop()
                 yield from parts
 
+    t0 = time.time()
     counts = _pretokenize_counts(text_chunks(), pattern)
 
     # pair -> 全语料频次;pair -> 含该 pair 的词型集合(完全维护)
@@ -99,7 +104,25 @@ def train_bpe(
 
     merges: list[tuple[bytes, bytes]] = []
     num_merges = vocab_size - 256 - len(special_tokens)
+    t_start = time.time()
+    if log_every:
+        print(
+            f"[bpe] 预分词完成: {len(counts)} 个词型, {len(stats)} 种 pair, "
+            f"耗时 {t_start - t0:.1f}s",
+            file=sys.stderr,
+            flush=True,
+        )
     for i in range(num_merges):
+        if log_every and i and i % log_every == 0:
+            done = i / num_merges
+            elapsed = time.time() - t_start
+            eta = elapsed / done - elapsed
+            print(
+                f"[bpe] {i}/{num_merges} ({done*100:.0f}%) 已用 {elapsed/60:.1f}min "
+                f"ETA {eta/60:.1f}min",
+                file=sys.stderr,
+                flush=True,
+            )
         # tie-break:频次 > pair 左字节 id > 右字节 id(与课程实现一致)
         pair = max(stats, key=lambda x: (stats[x], vocab[x[0]], vocab[x[1]]))
         idx = i + 256 + len(special_tokens)

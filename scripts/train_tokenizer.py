@@ -41,6 +41,7 @@ def main() -> None:
     ap.add_argument("--out-dir", default="data/tokenizer")
     ap.add_argument("--vocab-size", type=int, default=10000)
     ap.add_argument("--sample-mb", type=int, default=200)
+    ap.add_argument("--log-every", type=int, default=200, help="每 N 个 merge 打印一次进度(0=不打印)")
     args = ap.parse_args()
 
     src = Path(args.train_file)
@@ -54,7 +55,7 @@ def main() -> None:
 
     t0 = time.time()
     print(f"训练 BPE: vocab_size={args.vocab_size}, special={SPECIAL_TOKENS}")
-    vocab, merges = train_bpe(str(sample_path), args.vocab_size, SPECIAL_TOKENS)
+    vocab, merges = train_bpe(str(sample_path), args.vocab_size, SPECIAL_TOKENS, log_every=args.log_every)
     print(f"完成,耗时 {time.time()-t0:.1f}s,vocab={len(vocab)},merges={len(merges)}")
 
     tok = Tokenizer(vocab, merges, SPECIAL_TOKENS)
