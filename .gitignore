@@ -1,0 +1,17 @@
+# 数据与产物(大文件不入库)
+data/
+*.npy
+*.parquet
+*.model
+experiments/*/checkpoint*.pt
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# os / 编辑器
+.DS_Store
+*.swp

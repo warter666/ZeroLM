@@ -1,0 +1,30 @@
+[project]
+name = "ZeroLLM"
+version = "0.1.0"
+description = "从零训练中文小语言模型(TinyStories-Zh),CS336 assignment1 风格的模块划分"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.5",
+    "numpy>=1.26",
+    "regex>=2024.11",
+    "einops>=0.8",
+    "jaxtyping>=0.2.36",
+    "tqdm>=4.66",
+    "pyarrow>=17.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "matplotlib>=3.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["zerollm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
