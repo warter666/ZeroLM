@@ -33,9 +33,10 @@ _worker_tok: Tokenizer | None = None
 _worker_path: str | None = None
 
 
-def _init_worker(vocab_path: str, merges_path: str, special_tokens: list[str]) -> None:
-    global _worker_tok
+def _init_worker(vocab_path: str, merges_path: str, special_tokens: list[str], text_path: str) -> None:
+    global _worker_tok, _worker_path
     _worker_tok = Tokenizer.from_files(vocab_path, merges_path, special_tokens)
+    _worker_path = text_path
 
 
 def _encode_range(span: tuple[int, int]) -> list[int]:
@@ -124,7 +125,7 @@ def encode_split(
     assert len(tok.vocab) <= 65536, "uint16 词表上限 65536,请用 --dtype uint32"
     typecode = {"uint16": "H", "uint32": "I"}[dtype]
 
-    with Pool(workers, initializer=_init_worker, initargs=(vocab_path, merges_path, special_tokens)) as pool:
+    with Pool(workers, initializer=_init_worker, initargs=(vocab_path, merges_path, special_tokens, str(src))) as pool:
         with open(bin_path, "ab") as fout, tqdm(total=total - done_docs, desc=name, unit="doc") as bar:
             pending_since_flush = 0
             for batch_start in range(done_docs, total, batch_docs):

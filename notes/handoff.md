@@ -2,25 +2,32 @@
 
 > 最新在最上面。每条写清「做了什么 / 当前状态 / 下一步 / 坑」。
 
-## 2026-11-24 · 项目立项 ZeroLLM
+## 2026-11-24 · 核心模块完成,冒烟验证中
 
 **做了什么**
-- 项目定名 ZeroLLM(from zero to LLM),目录 `/home/tbtb/projects/ZeroLLM`。
-- 参考仓库 Hurricane0698/TransformerLM-from-scratch 已摸清结构:`cs336_basics/` 七模块(tokenizer / train_bpe / TransformerLM / loss_optimizer / Training / run_training / generating)+ `modal_tinystories.py` 云训练;英文 TinyStories 10k vocab / 256 ctx / d512 / 4L / 16H / d_ff 1344 ≈ 17M 参数,val loss 1.36(B200)。
-- 语料选型:[RobinChen2001/TinyStories-Zh-2M](https://huggingface.co/datasets/RobinChen2001/TinyStories-Zh-2M)(MIT,~200 万条中文故事,842MB parquet,单列 text)。
-- 骨架:init-project-wsl + AGENTS.md/README/pyproject/.gitignore,包名 `zerollm`。
+- 全部 7 个核心模块写完并各自带测试,**59 个测试全绿**:
+  - `train_bpe.py`(课程实现改编 + 流式读取)、`tokenizer.py`(encode/流式/decode/save/load)、
+    `model.py`(pre-norm + RoPE decoder-only)、`loss_optimizer.py`(CE/AdamW/cosine LR/裁剪)、
+    `training.py`(get_batch/checkpoint)、`run_training.py`(CLI/断点续训/csv)、`generating.py`(top-p)。
+- 数据脚本:`download_data.py`(HF 下载 + train/valid 切分)、`train_tokenizer.py`(采样训 BPE)、
+  `prepare_data.py`(多进程编码 + 断点续跑,输出 .npy)。
+- `scripts/smoke_test.sh` 端到端冒烟、`scripts/train_cloud.sh` 云端三阶段(冒烟/预处理/训练)。
+- 两次提交:立项骨架、核心模块。
 
 **当前状态**
-- 骨架已提交(首次 commit)。模块全部未开工。
+- 冒烟测试在后台跑(2k 篇 → 2k 词表 → 500 篇编码 → 30 步 CPU 训练 → 生成)。
 
 **下一步**
-1. 模块 1:`zerollm/train_bpe.py`(复制课程仓库已通过测试的实现并适配)。
-2. 模块 2:`zerollm/tokenizer.py`(encode/encode_iterable/decode,special token)。
-3. 依次:模型 → loss/optimizer → data/checkpoint → 训练循环 → 生成脚本。
-4. 数据脚本(download / train_tokenizer / prepare_data)。
-5. 云训练配置(用户开机器后再动)。
+1. 确认冒烟通过(修暴露出的问题)。
+2. 用户开云机器后:`bash scripts/train_cloud.sh`(--stage smoke → prep → train)。
+3. 训完:`scripts/generate.py` 看生成质量;`figures/` 画 loss 曲线(可选)。
 
 **坑**
-- 课程仓库 `cs336/assignment1-basics` 的课程 AGENTS.md 规定 AI 只做助教;本仓库是独立项目,不受该规则约束,但不要在课程仓库里补作业或回写。
-- 本机 RTX 4060 只有 8GB,完整训练按用户要求上云 GPU;本地只做冒烟。
-- `data/` 有 800MB+ 语料,已在 `.gitignore`,别 `git add .` 加进去。
+- uv 默认直连 PyPI,torch 900MB+ 下载极慢/429。统一用镜像:
+  `export UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple`(云在国外机器则不用)。
+- `tokenizer.py` 的 `_safe_cut`:special token 恰好结束在缓冲区末尾时必须整段编出,
+  否则会被正则拆碎(测试 test_special_across_chunk_boundary 覆盖)。
+- 中文一个汉字 3 字节,10k 词表下"整字 token"是压缩主力;别用英文语料的直觉预估 token 数。
+- AdamW 更新顺序:先 moment,再 decoupled decay,最后参数更新(与参考式对齐的顺序,别乱调)。
+
+
