@@ -2,31 +2,49 @@
 
 > 最新在最上面。每条写清「做了什么 / 当前状态 / 下一步 / 坑」。
 
-## 2026-11-24 晚 · 数据在本地跑完,云端只留 GPU 活
+## 2026-11-24 深夜 · 数据全跑完 + 本地训到 28200 步(自动暂停)
 
 **做了什么**
-- 3 个 parquet(842MB)已在本地,转出 `data/zh_train.txt`(1.5GB,197.4 万篇)+ `zh_valid.txt`(15MB,2 万篇),耗时 20 秒。
-- 实测了 BPE 与编码的真实速度(本地 16 核):
-  - 纯 Python BPE 成本随语料量近线性涨:5.2MB+2k merges=196s;50MB 前 100 个 merge 要 6 分钟;30MB 前 100 个 6.2min、前 200 个 8.1min(单 merge 从 3.5s 衰减到 1.1s)。
-  - 结论:**10k merges 在 200MB 采样上要 2–3 小时,30MB 约 50–60 分钟**。10k 中文词表用 30MB(≈7.5M tokens)够。
-  - 编码侧很快:单核 0.25MB/s,16 进程全量 1.5GB 约 10–15 分钟。
-- `train_bpe` 新增 `log_every`(每 N 个 merge 打一行进度 + ETA),`train_tokenizer.py` 新增 `--log-every`(默认 200)。
-- 新增 `scripts/upload_data.sh`:只传 `data/tokenizer/*` + 两个 npy(约 0.8GB,rsync 断点续传 + sha256 双向核对),parquet/txt 不传。
+- 语料:3 个 parquet(842MB)→ `data/zh_train.txt`(1.5GB,197.4 万篇)+ `zh_valid.txt`(15MB,2 万篇),20 秒。
+- BPE:`vocab 10000 / merges 9743`,**73.8 分钟**,roundtrip OK,**5.96 bytes/token**(30MB 采样)。
+- 编码:`zh_train.npy` **254.1M tokens / 485MB**(uint16),`zh_valid.npy` 2.6M tokens,16 进程约 9 分钟。
+- 训练:`experiments/zh-1ep`,31000 步 = 1 epoch,`--sdpa --compile` 后 **87ms/step**(4060 Laptop,62k tok/s)。
+  - 训练中 val loss:9.25(初始化) → 6.50@50 → 2.69@6000 → **2.285@28000**。
+  - **已手动停在第 28200 步**(用户要求暂停);`checkpoint.pt` 停在 **28000** 步,259.8MB。
+- 代码 4 个 commit(见 `git log`):A10 适配 / 数据链路可观测 / 采样实验 / 本交接。
 
 **当前状态**
-- BPE 10k / 30MB 采样在后台跑,日志 `/tmp/bpe10k.log`,预计 50–60 分钟。
+- 本地可完整跑通全流程,唯一未做:训到 31000 步收尾、采样旋钮实验、生成样例。
+- `experiments/zh-1ep/` 里有 config.json / metrics.csv / checkpoint.pt(28000)。
 
 **下一步**
-1. BPE 完 → `python scripts/prepare_data.py --workers 16`(全量编码,约 10–15 分钟,产物 ~760MB uint16)。
-2. 本地跑一次 CPU 小步数训练,确认 npy 能被 `run_training` 正常吃(链路自检)。
-3. `bash scripts/upload_data.sh <user>@<host>:~/ZeroLLM` 推数据。
-4. 云端:`bash scripts/train_cloud_sys.sh smoke` → `train`(prep 阶段可完全跳过)。
+1. 续训到 1 epoch(还有 2200 步,约 3 分钟):
+   `python -m zerollm.run_training --experiment-name zh-1ep ...同上参数... --checkpoint-in experiments/zh-1ep/checkpoint.pt`
+   (必须保持 `--num-iters 31000` 与 `--sdpa --compile` 一致,否则 LR 曲线断、state_dict 不匹配)
+2. `python scripts/sampling_experiment.py --run-dir experiments/zh-1ep` → 跑三旋钮对比,
+   把真实数值填进 README 的「采样旋钮实验」节和 `experiments/sampling-zh-1ep/samples.md`。
+3. `python scripts/generate.py --run-dir experiments/zh-1ep --prompt "从前"` 看生成效果;
+   `python scripts/plot_loss.py --run-dir experiments/zh-1ep` 出 loss 曲线。
+4. 要上云:只有 0.5GB 的 npy + tokenizer 需要传 → `bash scripts/upload_data.sh <user>@<host>:~/ZeroLLM`,
+   云端 `bash scripts/train_cloud_sys.sh train`(prep 完全跳过;A10 上 31k 步约 30 分钟)。
+
+**实测数据(可复用)**
+- 4060 Laptop 稳态:base 217ms/step → `--sdpa` 112ms → `--sdpa --compile` **83-87ms**;峰值显存 bs32 **2.12GB**。
+- bs64 吞吐不变(无收益),bs128 在 8GB 上掉到 20.9k tok/s(颠簸) → **8GB 卡就用 bs32**。
+- A10 约为 4060 的 2–3 倍,31k 步 30 分钟量级;原方案「3–4 小时」高估约 30 倍。
+- 纯 Python BPE 成本随语料近线性涨:5.2MB+2k merges=196s;30MB+10k merges=73.8min;200MB 估 2–3 小时。
 
 **坑**
-- 训练 token 预算只有 `10000×32×256 = 82M`,而全量编码约 380M tokens(≈0.2 epoch)。全量编码是保险,不是必需;要省上传就只编码前 50 万篇(~100M tokens)。
-- 日志里的线性 ETA 严重高估(单 merge 成本随序号下降),只看 200 merge 内的衰减曲线估时间。
-- `pkill -f train_tokenizer.py` 会把发起命令的 bash 自己也匹配杀掉(命令行里含同串),要用启动脚本 `setsid` 起后台。
-- `train_tokenizer.sample_text` 发现 `sample.txt` 已存在就直接复用:**改 `--sample-mb` 后必须先 rm -rf data/tokenizer**,否则还在用旧样本。
+- `--compile` 会把 `state_dict` 键加 `_orig_mod.` 前缀 → 存出的 checkpoint 无法被未 compile 模型加载(续训/生成全挂)。已修:forward 用 fwd,存档/eval 用原始 model。
+- 权重绑定(`--tie-embeddings`)必须配 `std=0.02` 的 embedding 初始化;用本仓库默认 std=1.0 会让 logits 尺度爆炸,初始 loss 44.7。已内置处理。
+- `print` 重定向到文件是块缓冲:**日志看起来卡住其实在跑**,以 `metrics.csv` 为准(已给 print 加 flush)。
+- `pkill -f train_tokenizer.py` 会把发起命令的 bash 自己也匹配杀掉(命令行含同串),用 `setsid` + 启动脚本。
+- `train_tokenizer.sample_text` 发现 `sample.txt` 已存在就复用:**改 `--sample-mb` 前必须先 rm -rf data/tokenizer**。
+- 断点续训不能改 `--num-iters`/`--sdpa`/`--tie-embeddings`;分段用 `--stop-at`。
+
+**遗留**
+- `uv.lock`(上次会话切 python 版本的遗留改动)与 `figures/`(benchmark 产物)未提交,用户未表态。
+- 词表压缩率 5.96 B/token 比早期冒烟(4.16)好很多,所以全量只有 254M tokens,不是先前估的 380M。
 
 
 ## 2026-11-24 · 全链路冒烟通过,等云机器开训
