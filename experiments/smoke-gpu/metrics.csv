@@ -1,3 +1,0 @@
-step,elapsed_seconds,split,loss,learning_rate
-15,2.00,valid,7.500000,2.224802e-04
-30,2.55,valid,7.406250,3.106452e-05
