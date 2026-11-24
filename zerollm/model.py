@@ -28,14 +28,24 @@ class Linear(nn.Module):
 
 
 class Embedding(nn.Module):
-    """查表嵌入,N(0,1) 截断到 [-3, 3]。"""
+    """查表嵌入,N(0,1) 截断到 [-3, 3](权重绑定时改用小方差,见 init_std)。"""
 
-    def __init__(self, num_embeddings: int, embedding_dim: int, device=None, dtype=None):
+    def __init__(
+        self,
+        num_embeddings: int,
+        embedding_dim: int,
+        device=None,
+        dtype=None,
+        init_std: float = 1.0,
+    ):
         super().__init__()
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         w = torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype)
-        self.weight = nn.Parameter(nn.init.trunc_normal_(w, mean=0.0, std=1.0, a=-3.0, b=3.0))
+        bound = 3 * init_std
+        self.weight = nn.Parameter(
+            nn.init.trunc_normal_(w, mean=0.0, std=init_std, a=-bound, b=bound)
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.weight[x]
@@ -90,6 +100,8 @@ class RotaryPositionalEmbedding(nn.Module):
         idx = torch.arange(d_k // 2, device=device, dtype=torch.float32)[None, :]  # [1, d/2]
         freq = 1.0 / (theta ** (2.0 * idx / d_k))
         angle = seq * freq  # [S, d/2]
+        self.cos_table: torch.Tensor
+        self.sin_table: torch.Tensor
         self.register_buffer("cos_table", torch.cos(angle), persistent=False)
         self.register_buffer("sin_table", torch.sin(angle), persistent=False)
 
@@ -133,6 +145,7 @@ class MultiHeadSelfAttention(nn.Module):
         theta: float | None = None,
         device=None,
         dtype=None,
+        use_sdpa: bool = False,
     ):
         super().__init__()
         assert d_model % num_heads == 0, "d_model 必须被 num_heads 整除"
@@ -140,11 +153,18 @@ class MultiHeadSelfAttention(nn.Module):
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
         self.theta = theta
+        # sm80+ 走 flash / mem-efficient 内核,不用物化 [B,H,S,S] 分数矩阵
+        self.use_sdpa = use_sdpa
         self.q_proj = Linear(d_model, d_model, device=device, dtype=dtype)
         self.k_proj = Linear(d_model, d_model, device=device, dtype=dtype)
         self.v_proj = Linear(d_model, d_model, device=device, dtype=dtype)
         self.output_proj = Linear(d_model, d_model, device=device, dtype=dtype)
-        self.rope = RotaryPositionalEmbedding(theta, self.head_dim, max_seq_length) if theta else None
+        self.rope = (
+            RotaryPositionalEmbedding(theta, self.head_dim, max_seq_length)
+            if theta and max_seq_length is not None
+            else None
+        )
+        self.causal_mask: torch.Tensor
         if max_seq_length is not None:
             # True = 保留(下三角含对角);使用时按序列长度切片
             self.register_buffer(
@@ -163,8 +183,11 @@ class MultiHeadSelfAttention(nn.Module):
                 token_positions = torch.arange(seq, device=x.device)
             q = self.rope(q, token_positions)
             k = self.rope(k, token_positions)
-        mask = self.causal_mask[:seq, :seq]
-        ctx = scaled_dot_product_attention(q, k, v, mask)
+        if self.use_sdpa:
+            ctx = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
+        else:
+            mask = self.causal_mask[:seq, :seq]
+            ctx = scaled_dot_product_attention(q, k, v, mask)
         ctx = ctx.transpose(-2, -3).contiguous().view(*batch, seq, self.d_model)
         return self.output_proj(ctx)
 
@@ -172,10 +195,20 @@ class MultiHeadSelfAttention(nn.Module):
 class TransformerBlock(nn.Module):
     """pre-norm: x = x + Attn(LN(x)); x = x + FFN(LN(x))。"""
 
-    def __init__(self, d_model: int, num_heads: int, d_ff: int | None, max_seq_length: int, theta: float):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        d_ff: int | None,
+        max_seq_length: int,
+        theta: float,
+        use_sdpa: bool = False,
+    ):
         super().__init__()
         self.ln1 = RMSNorm(d_model)
-        self.attn = MultiHeadSelfAttention(d_model, num_heads, max_seq_length, theta)
+        self.attn = MultiHeadSelfAttention(
+            d_model, num_heads, max_seq_length, theta, use_sdpa=use_sdpa
+        )
         self.ln2 = RMSNorm(d_model)
         self.ffn = SwiGLU(d_model, d_ff)
 
@@ -197,19 +230,30 @@ class TransformerLM(nn.Module):
         rope_theta: float,
         device=None,
         dtype=None,
+        tie_embeddings: bool = False,
+        use_sdpa: bool = False,
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.context_length = context_length
-        self.token_embeddings = Embedding(vocab_size, d_model, device=device, dtype=dtype)
+        # 权重绑定时 lm_head 复用这张矩阵,必须用小方差初始化:否则 logits 尺度 = sqrt(d_model)*std,
+        # 会直接把初始 loss 推到 40+ (实测 44.7 vs 正常 9.21),训不起来。
+        self.token_embeddings = Embedding(
+            vocab_size, d_model, device=device, dtype=dtype,
+            init_std=0.02 if tie_embeddings else 1.0,
+        )
         self.layers = nn.ModuleList(
             [
-                TransformerBlock(d_model, num_heads, d_ff, context_length, rope_theta)
+                TransformerBlock(
+                    d_model, num_heads, d_ff, context_length, rope_theta, use_sdpa=use_sdpa
+                )
                 for _ in range(num_layers)
             ]
         )
         self.ln_final = RMSNorm(d_model)
-        self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
+        # 权重绑定(GPT-2 式):lm_head 直接复用 embedding 矩阵,省 vocab*d_model 个参数
+        self.tie_embeddings = tie_embeddings
+        self.lm_head = None if tie_embeddings else Linear(d_model, vocab_size, device=device, dtype=dtype)
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
         """x: [B, S] 的 token id -> logits: [B, S, vocab_size]。"""
@@ -218,10 +262,15 @@ class TransformerLM(nn.Module):
         h = self.token_embeddings(x)
         for layer in self.layers:
             h = layer(h, token_positions)
-        return self.lm_head(self.ln_final(h))
+        h = self.ln_final(h)
+        if self.lm_head is None:
+            return h @ self.token_embeddings.weight.T
+        return self.lm_head(h)
 
     def num_parameters(self, exclude_embeddings: bool = False) -> int:
         n = sum(p.numel() for p in self.parameters())
         if exclude_embeddings:
-            n -= self.token_embeddings.weight.numel() + self.lm_head.weight.numel()
+            n -= self.token_embeddings.weight.numel()
+            if self.lm_head is not None:
+                n -= self.lm_head.weight.numel()
         return n

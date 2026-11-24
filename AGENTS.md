@@ -13,8 +13,9 @@
 ## 技术与运行
 
 - 技术栈:Python 3.12 + uv、PyTorch(CUDA)、numpy、regex、einops、jaxtyping、tqdm、matplotlib;云侧另加 modal(可选)。
-- 模型规模(默认):vocab 10000 / context 256 / d_model 512 / num_layers 4 / num_heads 16 / d_ff 1344 / RoPE theta 10000,约 17M 参数。
+- 模型规模(默认):vocab 10000 / context 256 / d_model 512 / num_layers 4 / num_heads 16 / d_ff 1344 / RoPE theta 10000,**22.70M 参数**(embedding 5.12M + lm_head 5.12M + 4 层 12.46M);加 `--tie-embeddings` 为 17.58M。早先写的“17M”是权重绑定下的数字。
 - 本地(WSL,RTX 4060 8GB):跑冒烟训练与单测;真实训练上云 GPU,配置见 `scripts/`。
+- GPU 上的加速开关:`--sdpa`(换 flash 内核,1.9x)、`--compile`(再 1.3x)、`--tie-embeddings`(参数量 22.70M→17.58M)。老 run 续训必须保持这些开关与 `--num-iters` 一致。
 - 启动 / 测试命令:
   - 测试:`uv run pytest tests/ -v`
   - 预处理:`uv run python scripts/prepare_data.py`

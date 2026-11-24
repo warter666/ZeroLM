@@ -54,6 +54,9 @@ def main() -> None:
         num_heads=config["num_heads"],
         d_ff=config["d_ff"],
         rope_theta=config["rope_theta"],
+        # 老 run 的 config.json 没有这两个键,默认 False
+        tie_embeddings=bool(config.get("tie_embeddings", False)),
+        use_sdpa=bool(config.get("sdpa", False)),
     ).to(args.device)
     step = load_checkpoint(run_dir / args.checkpoint, model)
     model.eval()

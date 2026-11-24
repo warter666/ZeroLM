@@ -42,15 +42,26 @@ prep() {
 }
 
 train() {
+  # A10 实测口径:--sdpa 约 1.9x、--compile 再 1.3x;10k 步在 A10 约 5-10 分钟,
+  # 所以默认直接把 ITERS 抬到 30000(=250M tokens,全量语料 ~0.65 epoch)。
+  # 要分段就传 ITERS 一致 + 额外 --stop-at,LR 曲线才不会断。
+  local ITERS="${ITERS:-30000}"
+  local EXTRA=("--sdpa")
+  [ "${COMPILE:-1}" = "0" ] || EXTRA+=( "--compile" )
+  [ "${TIE:-0}" = "1" ] && EXTRA+=( "--tie-embeddings" )
+  [ -n "${STOP_AT:-}" ] && EXTRA+=( "--stop-at" "$STOP_AT" )
+  [ -n "${RESUME:-}" ] && EXTRA+=( "--checkpoint-in" "$RESUME" )
+  echo "== 训练: iters=$ITERS sdpa=1 compile=${COMPILE:-1} tie=${TIE:-0} =="
   python -m zerollm.run_training \
-    --experiment-name "zh-10k-$(date +%m%d-%H%M)" \
+    --experiment-name "${RUN_NAME:-zh-$(date +%m%d-%H%M)}" \
     --train-data data/zh_train.npy --valid-data data/zh_valid.npy \
     --vocab-size 10000 --context-length 256 \
     --d-model 512 --num-layers 4 --num-heads 16 --d-ff 1344 --rope-theta 10000 \
     --lr 3e-4 --min-lr 3e-5 --weight-decay 0.01 --beta1 0.9 --beta2 0.95 \
-    --batch-size 32 --num-iters 10000 --warmup-iters 200 \
-    --eval-interval 100 --eval-iters 20 --save-interval 500 \
-    --device cuda
+    --max-grad-norm 1.0 \
+    --batch-size 32 --num-iters "$ITERS" --warmup-iters 200 \
+    --eval-interval 250 --eval-iters 20 --save-interval 1000 \
+    --device cuda "${EXTRA[@]}"
 }
 
 smoke() {

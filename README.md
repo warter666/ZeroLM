@@ -36,9 +36,23 @@ From zero to LLM:从零开始(不依赖任何框架内置的 Transformer 实现)
 | layers / heads | 4 / 16 |
 | d_ff | 1344 |
 | RoPE theta | 10000 |
-| 参数量 | ≈ 17M |
+| 参数量 | **22.70M**(不绑定);`--tie-embeddings` 后 **17.58M** |
 
-约 17M 参数,单张 A10 / RTX 4060 级别的 GPU 几小时内可以完整训练。
+参数量的账(实测 `model.num_parameters()`):
+
+| 组成 | 参数 |
+| --- | --- |
+| token embedding | 5.12M |
+| lm_head(默认独立) | 5.12M |
+| 4 层 × (attn 1.05M + SwiGLU 2.06M + 2×RMSNorm) | 12.46M |
+| **合计(默认)** | **22.70M** |
+
+早先文档写的“≈17M”是**权重绑定**(lm_head 复用 embedding)时的数字 22.70−5.12=17.58M。代码默认不绑定,
+所以真实是 22.70M。要 17M 就加 `--tie-embeddings`(注意:绑定时 embedding 必须用 std=0.02 初始化,
+否则 logits 尺度爆炸、初始 loss 直接 44.7 —— 已内置处理)。
+
+速度(本地 RTX 4060 Laptop 实测,bs32×ctx256,毫秒/步):默认 217 → `--sdpa` 112 → `--sdpa --compile` 83。
+A10 约为 4060 的 2–3 倍,10k 步 5–8 分钟,30k 步 20 分钟量级。
 
 ## 快速开始
 
@@ -61,6 +75,9 @@ uv run python -m zerollm.run_training --experiment-name smoke \
 
 # 5. 生成
 uv run python scripts/generate.py --run-dir experiments/<name> --prompt "从前"
+
+# 6. 画 loss 曲线(读 metrics.csv)
+uv run python scripts/plot_loss.py --run-dir experiments/<name>
 ```
 
 云 GPU 一键流程(冒烟 → 数据 → 训练):`bash scripts/train_cloud_sys.sh --all`
