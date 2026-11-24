@@ -16,13 +16,13 @@ From zero to LLM:从零开始(不依赖任何框架内置的 Transformer 实现)
 
 | 模块 | 文件 | 内容 |
 | --- | --- | --- |
-| BPE 训练 | `zerollm/train_bpe.py` | 字节级 BPE:词型频次统计、增量合并、tie-break 规则 |
+| BPE 训练 | `zerollm/train_bpe.py` | 字节级 BPE:词型频次统计、增量合并、tie-break 规则(实现思路参考 Karpathy 的 [minbpe](https://github.com/karpathy/minbpe)) |
 | 分词器 | `zerollm/tokenizer.py` | encode / 流式 encode_iterable / decode,special token 处理 |
 | 模型 | `zerollm/model.py` | Linear / Embedding / RMSNorm / SwiGLU / RoPE / causal MHA / pre-norm Block / TransformerLM |
 | 损失与优化 | `zerollm/loss_optimizer.py` | cross_entropy(数值稳定)、AdamW(decoupled weight decay)、warmup+cosine LR、梯度裁剪 |
 | 训练组件 | `zerollm/training.py` | get_batch 随机批采样、checkpoint 存取 |
 | 训练循环 | `zerollm/run_training.py` | CLI:断点续训、eval 记录 csv、自动 checkpoint |
-| 生成 | `zerollm/generating.py` | temperature + top-p(nucleus)采样 |
+| 生成 | `zerollm/generating.py` | temperature + top-k + top-p(nucleus)采样 |
 
 全部模型组件(注意力、归一化、优化器)均为手写 PyTorch 实现,不调用 `nn.Transformer`、`torch.optim.AdamW` 等现成封装。
 
@@ -78,6 +78,9 @@ uv run python scripts/generate.py --run-dir experiments/<name> --prompt "从前"
 
 # 6. 画 loss 曲线(读 metrics.csv)
 uv run python scripts/plot_loss.py --run-dir experiments/<name>
+
+# 7. 采样旋钮对比实验(temperature / top-k / top-p)
+uv run python scripts/sampling_experiment.py --run-dir experiments/<name>
 ```
 
 云 GPU 一键流程(冒烟 → 数据 → 训练):`bash scripts/train_cloud_sys.sh --all`
@@ -86,7 +89,7 @@ uv run python scripts/plot_loss.py --run-dir experiments/<name>
 
 ```
 zerollm/        模型与训练库
-scripts/        数据下载、BPE 训练、预处理、生成、云训练脚本
+scripts/        数据下载、BPE 训练、预处理、生成、画图、采样实验、上传、云训练脚本
 tests/          模块测试
 experiments/    训练产物(metrics.csv / config / checkpoint,大文件不入库)
 data/           语料与 token id(不入库)
@@ -98,4 +101,31 @@ figures/        loss 曲线等
 - 优化器:AdamW,β=(0.9, 0.95),weight decay 0.01,梯度裁剪 max_norm 1.0
 - 学习率:3e-4 峰值,200 步线性 warmup,cosine 衰减到 3e-5
 - batch:32 × 256 tokens;混合精度:bf16 autocast(Ampere 及以上)
-- 评估:每 100 步在验证集上算 loss,记录到 `metrics.csv`
+- 规模:31,000 步 ≈ 1 epoch(全量编码后 train 254.1M tokens)
+- 加速:`--sdpa`(flash 内核)与 `--compile`,见上节实测
+- 评估:每 500 步在验证集上算 loss(20 个 batch),与 train loss 一并写入 `metrics.csv`
+
+## 采样旋钮实验
+
+`zerollm/generating.py` 支持三个旋钮,作用和调节方式不同:
+
+| 旋钮 | 改什么 | 特点 |
+| --- | --- | --- |
+| temperature | 分布**形状**:`logits / t`,t<1 变尖、t>1 变平 | 同时影响候选集合大小和相对概率 |
+| top-k | **候选数量固定**为 k 个 | 不随分布形状变化,分布很尖时仍会带上 k−1 个坏候选 |
+| top-p | 保留累计概率达到 p 的**最小集合** | 候选数量自适应:分布尖时少、平时多 |
+
+`scripts/sampling_experiment.py` 做对比实验:固定同一前缀与 RNG 种子,一次只动一个旋钮,
+统计连贯性(self_ppl / EOS 命中率 / 有效字符率)、多样性(distinct-1/2/3)、
+重复模式(重复 4-gram 占比 / max 4-gram 频次),输出 `metrics.csv`、`samples.md` 和三旋钮曲线图。
+
+结论模板(对本仓库 checkpoint 实测后填):对这个 checkpoint,top-p 比固定 top-k 更灵活,
+temperature 到 2.0 就基本崩坏。
+
+## 参考与致谢
+
+- [Stanford CS336: Language Modeling from Scratch](https://stanford-cs336.github.io/) Assignment 1:模块划分、bpe/模型/优化的接口与测试基准
+- Andrej Karpathy 的 [minbpe](https://github.com/karpathy/minbpe):字节级 BPE 的实现思路(词型计数、增量 pair 统计、merge 顺序与特殊 token 处理)
+- Andrej Karpathy 的 [nanoGPT](https://github.com/karpathy/nanoGPT):pre-norm + RoPE 结构、AdamW 超参、warmup+cosine 训练配方
+- [TinyStories](https://arxiv.org/abs/2305.07759)(Eldan & Li, 2023):语料设计与小模型可行性结论
+- [TinyStories-Zh-2M](https://huggingface.co/datasets/RobinChen2001/TinyStories-Zh-2M)(MIT):中文语料

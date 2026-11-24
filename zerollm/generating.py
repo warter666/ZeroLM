@@ -1,4 +1,12 @@
-"""自回归生成:temperature + top-p(nucleus)采样。"""
+"""自回归生成:temperature + top-k + top-p(nucleus)采样。
+
+三个旋钮的作用(实验结论见 notes/sampling.md):
+- temperature 改分布**形状**:logits/temperature,<1 变尖(保守),>1 变平(发散);
+- top-k 只保留概率最高的 k 个候选,**候选数量固定**,不随分布形状变化;
+- top-p 保留累计概率达到 p 的最小集合,**候选数量自适应**:分布尖时自动少,平时自动多。
+
+实现顺序:先 top-k 截断,再在剩下的集合里做 top-p(与 HuggingFace 的 top_k/top_p 叠加语义一致)。
+"""
 
 from __future__ import annotations
 
@@ -8,7 +16,7 @@ from zerollm.tokenizer import Tokenizer
 
 
 @torch.no_grad()
-def generate(
+def generate_ids(
     prompts: str | list[str],
     model: torch.nn.Module,
     tokenizer: Tokenizer,
@@ -17,10 +25,17 @@ def generate(
     max_new_tokens: int = 200,
     temperature: float = 1.0,
     top_p: float = 0.95,
+    top_k: int | None = None,
     eos_id: int | None = None,
-) -> list[str]:
-    """给一个或多个 prompt 续写;返回解码后的完整文本(含 prompt)。"""
+) -> tuple[list[list[int]], list[int]]:
+    """采样续写,返回 (每个序列的完整 id 列表, 各自 prompt 的 token 长度)。
+
+    拿到 prompt 长度就能切出"纯续写"部分做统计,不必反解字符串。
+    """
     assert temperature > 0, "temperature 必须 > 0"
+    assert 0 < top_p <= 1.0, "top_p 必须落在 (0, 1]"
+    assert top_k is None or top_k > 0, "top_k 必须 > 0 或为 None"
+
     single = isinstance(prompts, str)
     prompt_list = [prompts] if single else list(prompts)
 
@@ -32,6 +47,7 @@ def generate(
     for i, e in enumerate(encoded):
         ids[i, : len(e)] = torch.tensor(e, dtype=torch.long, device=device)
     lengths = [len(e) for e in encoded]
+    finished = torch.zeros(len(encoded), dtype=torch.bool, device=device)
 
     model.eval()
     for _ in range(max_new_tokens):
@@ -40,22 +56,44 @@ def generate(
         logits = logits / temperature
         probs = torch.softmax(logits, dim=-1)
 
-        # top-p 过滤:保留累计概率达到 p 的最小集合(含跨过阈值的那一个)
+        # 降序排列一次,top-k 与 top-p 都在这上面切
         sorted_probs, sorted_idx = torch.sort(probs, dim=-1, descending=True)
+        if top_k is not None:
+            sorted_probs[:, top_k:] = 0.0
+        # top-p 过滤:保留累计概率达到 p 的最小集合(含跨过阈值的那一个)
         cum = torch.cumsum(sorted_probs, dim=-1)
         cutoff = cum - sorted_probs  # 该 token 之前的累计概率
-        keep = cutoff < top_p
-        sorted_probs = sorted_probs * keep
+        sorted_probs = sorted_probs * (cutoff < top_p)
         sorted_probs = sorted_probs / sorted_probs.sum(dim=-1, keepdim=True).clamp_min(1e-12)
         next_sorted = torch.multinomial(sorted_probs, num_samples=1)  # [B,1]
         next_ids = sorted_idx.gather(1, next_sorted)  # [B,1]
         ids = torch.cat([ids, next_ids], dim=1)
 
-        if eos_id is not None and bool((next_ids == eos_id).all()):
-            break
+        if eos_id is not None:
+            finished |= next_ids.squeeze(1) == eos_id
+            if bool(finished.all()):
+                break
 
-    out = []
-    for i in range(len(prompt_list)):
-        seq = ids[i, : lengths[i] + max_new_tokens].tolist()
-        out.append(tokenizer.decode(seq))
-    return out
+    out = [ids[i, : lengths[i] + max_new_tokens].tolist() for i in range(len(prompt_list))]
+    return out, lengths
+
+
+def generate(
+    prompts: str | list[str],
+    model: torch.nn.Module,
+    tokenizer: Tokenizer,
+    device: str | torch.device = "cpu",
+    context_size: int = 256,
+    max_new_tokens: int = 200,
+    temperature: float = 1.0,
+    top_p: float = 0.95,
+    top_k: int | None = None,
+    eos_id: int | None = None,
+) -> list[str]:
+    """给一个或多个 prompt 续写;返回解码后的完整文本(含 prompt)。"""
+    ids, _ = generate_ids(
+        prompts, model, tokenizer,
+        device=device, context_size=context_size, max_new_tokens=max_new_tokens,
+        temperature=temperature, top_p=top_p, top_k=top_k, eos_id=eos_id,
+    )
+    return [tokenizer.decode(seq) for seq in ids]

@@ -46,8 +46,10 @@ class AdamW(torch.optim.Optimizer):
         super().__init__(params, defaults)
 
     @torch.no_grad()
-    def step(self, closure: Callable | None = None):
-        loss = None
+    def step(self, closure: Callable[[], float] | None = None) -> float | None:  # pyright: ignore[reportIncompatibleMethodOverride]
+        # torch 各版本 Optimizer.step 的返回类型标注不一致(float / None),
+        # 这里返回闭包结果(Optional[float]),调用方都不看返回值。
+        loss: float | None = None
         if closure is not None:
             with torch.enable_grad():
                 loss = closure()
@@ -106,7 +108,7 @@ def clip_gradients(parameters: Iterable[torch.nn.Parameter], max_norm: float) ->
     grads = [p.grad for p in parameters if p.grad is not None]
     if not grads:
         return torch.tensor(0.0)
-    total = torch.sqrt(sum((g.detach() ** 2).sum() for g in grads))
+    total = torch.sqrt(torch.stack([(g.detach() ** 2).sum() for g in grads]).sum())
     if total > max_norm:
         scale = max_norm / (total + 1e-6)
         for g in grads:

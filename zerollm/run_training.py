@@ -130,7 +130,7 @@ def main(args: argparse.Namespace) -> None:
     start_step = 0
     if args.checkpoint_in:
         start_step = load_checkpoint(args.checkpoint_in, model, optimizer)
-        print(f"从 {args.checkpoint_in} 续训,起始步 {start_step}")
+        print(f"从 {args.checkpoint_in} 续训,起始步 {start_step}", flush=True)
 
     train_data = np.load(args.train_data, mmap_mode="r")
     valid_data = np.load(args.valid_data, mmap_mode="r")
@@ -186,7 +186,8 @@ def main(args: argparse.Namespace) -> None:
             tok_s = step * args.batch_size * args.context_length / max(elapsed, 1e-9)
             print(
                 f"step {step:6d} | loss {loss.item():.4f} | lr {lr:.2e} "
-                f"| gn {float(grad_norm):.2f} | {tok_s/1e3:.1f}k tok/s | {elapsed:.0f}s"
+                f"| gn {float(grad_norm):.2f} | {tok_s/1e3:.1f}k tok/s | {elapsed:.0f}s",
+                flush=True,  # 重定向到文件时 stdout 是块缓冲,不 flush 会看不到进度
             )
             # train 行也落 csv,画 loss 曲线才有密集点
             writer.writerow([step, f"{elapsed:.2f}", "train", f"{loss.item():.6f}", f"{lr:.6e}"])
@@ -198,7 +199,10 @@ def main(args: argparse.Namespace) -> None:
             csv_f.flush()
             if val_loss < best_val:
                 best_val, best_step = val_loss, step
-            print(f"step {step:6d} | VALID loss {val_loss:.4f} (best {best_val:.4f} @ {best_step})")
+            print(
+                f"step {step:6d} | VALID loss {val_loss:.4f} (best {best_val:.4f} @ {best_step})",
+                flush=True,
+            )
 
         if step % args.save_interval == 0 or step == stop_at:
             save_checkpoint(model, optimizer, step, run_dir / args.checkpoint_out)
