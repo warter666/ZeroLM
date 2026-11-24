@@ -58,7 +58,9 @@ def main() -> None:
 
     data_dir = Path(args.data_dir)
     raw_dir = data_dir / "raw"
-    for rel in FILES:
+    # 限文档数时第一个 parquet 就够(67 万行);全量才需要 3 个
+    files = FILES[:1] if args.max_docs else FILES
+    for rel in files:
         download(BASE + rel, raw_dir / Path(rel).name)
 
     train_path = data_dir / "zh_train.txt"
@@ -69,21 +71,23 @@ def main() -> None:
 
     n_train = n_valid = 0
     written = 0
+    exhausted = False
     with open(train_path, "w", encoding="utf-8") as ftr, open(valid_path, "w", encoding="utf-8") as fva:
         for rel in FILES:
+            if exhausted:
+                break
             pf = pq.ParquetFile(raw_dir / Path(rel).name)
             total = pf.metadata.num_rows
             for batch in pf.iter_batches(batch_size=10000, columns=["text"]):
                 texts = batch.column("text").to_pylist()
                 for t in texts:
                     if args.max_docs and written >= args.max_docs:
-                        print(f"达到 --max-docs {args.max_docs},停止")
-                        print(f"train docs: {n_train}, valid docs: {n_valid}")
-                        return
+                        exhausted = True
+                        break
                     t = (t or "").strip()
                     if not t:
                         continue
-                    # 每 100 篇取 1 篇进验证集(按 valid_ratio 粗粒度分配)
+                    # 每 N 篇取 1 篇进验证集(按 valid_ratio 粗粒度分配)
                     if (written % max(int(round(1 / args.valid_ratio)), 1)) == 0:
                         fva.write(t + "\n" + EOT + "\n")
                         n_valid += 1
@@ -91,7 +95,10 @@ def main() -> None:
                         ftr.write(t + "\n" + EOT + "\n")
                         n_train += 1
                     written += 1
-            print(f"{rel}: {total} rows 已处理")
+            if not args.max_docs:
+                print(f"{rel}: {total} rows 已处理")
+            elif exhausted:
+                print(f"达到 --max-docs {args.max_docs},停止(未下载后续 parquet)")
     print(f"train docs: {n_train}, valid docs: {n_valid}")
     print(f"输出:{train_path} , {valid_path}")
 
