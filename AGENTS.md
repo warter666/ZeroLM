@@ -2,7 +2,7 @@
 
 ## 目标与验收
 
-- 目标：按 CS336 assignment1 的模块划分,从零训练一个中文小语言模型。语料为中文 TinyStories(~200 万条简短故事),BPE 分词沿用 `cs336/assignment1-basics` 已完成的 `train_bpe.py`,模型/训练/采样模块参考 Hurricane0698/TransformerLM-from-scratch 的结构重写,最终在云 GPU 上完成一次完整训练,能采样生成连贯中文小故事。
+- 目标：作为 CS336 assignment1 的课程实践,从零训练一个中文小语言模型。语料为中文 TinyStories(~200 万条简短故事),BPE 分词沿用 `cs336/assignment1-basics` 已完成的 `train_bpe.py`,其余模块(模型/优化/训练/采样)全部手写实现,最终在云 GPU 上完成一次完整训练,能采样生成连贯中文小故事。
 - 验收:
   1. BPE 训练在中文语料上产出 `vocab.json` + `merges.txt`,roundtrip(编码→解码)无损;
   2. 全量数据预处理(语料→token id 的 `.npy`)可断点续跑;
