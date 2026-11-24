@@ -2,7 +2,7 @@
 name = "ZeroLLM"
 version = "0.1.0"
 description = "从零训练中文小语言模型(TinyStories-Zh),CS336 assignment1 风格的模块划分"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "torch>=2.5",
     "numpy>=1.26",
