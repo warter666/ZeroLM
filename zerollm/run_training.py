@@ -54,6 +54,13 @@ def build_argparser() -> argparse.ArgumentParser:
     g = p.add_argument_group("training")
     g.add_argument("--batch-size", type=int, default=32)
     g.add_argument("--num-iters", type=int, default=10000)
+    g.add_argument(
+        "--stop-at",
+        type=int,
+        default=None,
+        help="本次运行跑到第几步就停(默认跑到 num-iters)。分段训练用:LR 调度始终按 num-iters 计算,"
+        "所以分段只是提前退出,不影响学习率曲线",
+    )
     g.add_argument("--warmup-iters", type=int, default=100)
     g.add_argument("--eval-interval", type=int, default=100)
     g.add_argument("--eval-iters", type=int, default=10)
@@ -133,7 +140,9 @@ def main(args: argparse.Namespace) -> None:
 
     t0 = time.time()
     step = start_step
-    while step < args.num_iters:
+    stop_at = args.stop_at if args.stop_at is not None else args.num_iters
+    assert stop_at <= args.num_iters, "--stop-at 不能大于 --num-iters"
+    while step < stop_at:
         lr = cosine_lr(
             step, args.lr, args.min_lr, args.warmup_iters, args.num_iters - args.warmup_iters
         )
@@ -159,13 +168,13 @@ def main(args: argparse.Namespace) -> None:
                 f"| gn {float(grad_norm):.2f} | {tok_s/1e3:.1f}k tok/s | {elapsed:.0f}s"
             )
 
-        if step % args.eval_interval == 0 or step == args.num_iters:
+        if step % args.eval_interval == 0 or step == stop_at:
             val_loss = evaluate(model, valid_data, args, ctx)
             writer.writerow([step, f"{elapsed:.2f}", "valid", f"{val_loss:.6f}", f"{lr:.6e}"])
             csv_f.flush()
             print(f"step {step:6d} | VALID loss {val_loss:.4f}")
 
-        if step % args.save_interval == 0 or step == args.num_iters:
+        if step % args.save_interval == 0 or step == stop_at:
             save_checkpoint(model, optimizer, step, run_dir / args.checkpoint_out)
 
     save_checkpoint(model, optimizer, step, run_dir / args.checkpoint_out)
