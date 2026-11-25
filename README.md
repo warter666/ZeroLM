@@ -94,7 +94,13 @@ uv run python scripts/generate.py --run-dir experiments/first --prompt "从前"
 - **采样**:top-k 的候选数标准差恒为 0(数量固定),top-p 在同一参数下能从 ±1.1 波动到 ±756
   (数量自适应);temperature 是唯一会让模型崩坏的旋钮 —— `t=1.6` 起 EOS 命中率就塌了。
 - **KV cache**:正确性用「两条路径输出逐 id 相同」钉死(含采样路径的随机数消耗顺序)。
-  实测 CPU B=1 **3.85×**、B=5 **8.33×** —— 加速比与批量强相关,GPU 数字待补测。
+  实测 **CPU 3.85×(B=1)/ 8.33×(B=5)**;GPU 在短序列、小批量下只有 **~1.0×**
+  —— 22.70M 模型生成 200 token 时,每步固定开销约 14 ms,
+  而 cache 省下的 `O(T²)` 重算只值零点几毫秒。**所以不宣称 GPU 加速,只宣称等价性与复杂度。**
+- **tie-embeddings 消融**(同 seed、同 3 epoch,只切 `--tie-embeddings`):
+  参数量 22.69M → 17.57M,而 best valid **2.1004 → 2.0438**、bits/byte 0.5121 → 0.4982、
+  ms/step 83 → 81。模型本就欠拟合时,共享 embedding 带来的正则化收益
+  大于少掉 5.1M 参数的损失。见图 `figures/tie_ablation.png`。
 
 ## 许可
 

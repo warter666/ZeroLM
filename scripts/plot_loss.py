@@ -131,7 +131,7 @@ def main() -> None:
             ax.annotate(
                 f"best {best_step[1]:.4f} @ {best_step[0]}",
                 xy=(best_step[0], best_step[1]),
-                xytext=(-8 if near_right else 8, 8),
+                xytext=(-8 if near_right else 8, 8 + 16 * (i % 3)),
                 textcoords="offset points",
                 horizontalalignment="right" if near_right else "left",
                 fontsize=8, color=color,
