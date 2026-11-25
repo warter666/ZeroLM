@@ -17,19 +17,23 @@
 
 ## 1 个 epoch 的结果(`experiments/zh-1ep`)
 
-本地 RTX 4060 Laptop(8GB)跑完 **31,000 步 / 254.1M tokens**,耗时 45 分钟。
+本地 RTX 4060 Laptop(8GB)的两次完整训练:
 
-| 指标 | 值 |
-| --------------------- | --------------------------- |
-| 初始 loss | 9.25(≈ ln 10000,随机初始化) |
-| **best valid loss** | **2.2711 @ step 28,500** |
-| 末次 valid loss | 2.2812 |
-| bits/token | 3.2765 |
-| bytes/token(语料实测) | 5.9178 |
-| bits/byte | 0.5537 |
+| 指标 | 1 epoch | 3 epoch |
+| ------------------- | ---------------- | --------------------------- |
+| 步数 | 31,000 | 93,000 |
+| 唯一 token | 254.1M | 254.1M(重复 3 遍,共 761.9M) |
+| 耗时 | 45 分钟 | 130 分钟(83 ms/步) |
+| 初始 loss | 9.25(≈ ln 10000) | 9.25 |
+| **best valid loss** | 2.2711 @ 28,500 | **2.1004 @ 90,000** |
+| 末次 valid loss | 2.2812 | 2.1320 |
+| bits/token | 3.2765 | 3.0302 |
+| bits/byte | 0.5537 | 0.5121 |
 
-曲线见 `figures/zh-1ep.png`(上:train 原始 + EMA、valid;下:cosine LR)。
-valid 全程位于 train 下方,1 个 epoch 没有过拟合迹象。
+曲线见 `figures/zh-3ep.png`(上:train 原始 + EMA、valid;下:cosine LR),1 epoch 版见 `figures/zh-1ep.png`。
+前两个 epoch valid 全程位于 train 下方;末尾 6 次 eval 中 valid 从 2.1004 回升到 2.13、
+连续 4 次上升,说明 3 个 epoch 的预算已经用尽,但幅度小(约 1.5%),尚不构成明显过拟合。
+**继续堆 epoch 的收益已很小,下一步该试容量或数据,而不是步数。**
 
 ## 关于 bits/byte 的口径
 

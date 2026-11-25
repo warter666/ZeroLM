@@ -4,8 +4,8 @@
 
 从零手写一个中文小语言模型:分词、Transformer、优化器、训练循环、采样,全部自己实现,
 不调用 `nn.Transformer` / `torch.optim.AdamW` / `cross_entropy` 等现成封装。
-语料为中文版 TinyStories(200 万篇小故事),单卡 RTX 4060 上 45 分钟训完 1 个 epoch,
-best validation loss **2.2711**,能用任意前缀生成连贯中文故事。
+语料为中文版 TinyStories(200 万篇小故事),单卡 RTX 4060 上 2 小时 10 分训完 3 个 epoch,
+best validation loss **2.1004**(折合 0.512 bits/byte),能用任意前缀生成连贯中文故事。
 
 > 起点是 [Stanford CS336 Assignment 1](https://stanford-cs336.github.io/) 的组件划分,
 > 但项目目标不止于作业:把「数据处理 → 分词 → 预训练 → 推理优化 → 采样分析」整条链路跑通并留下实测记录。
@@ -56,16 +56,19 @@ uv run python scripts/generate.py --run-dir experiments/first --prompt "从前"
 
 | 指标 | 值 |
 | -------------------- | --------------------------------------------------------------------- |
-| best validation loss | **2.2711** @ step 28,500 |
-| 训练规模 | 1 epoch / 31,000 步 / 254.1M token |
-| 单卡耗时 | 45 分钟(RTX 4060 Laptop 8GB,87 ms/step) |
+| best validation loss | **2.1004** @ step 90,000 |
+| 末次 validation loss | 2.1320 @ step 93,000 |
+| 训练规模 | 3 epoch / 93,000 步 / 761.9M token(254.1M 唯一 token × 3) |
+| 单卡耗时 | 130 分钟(RTX 4060 Laptop 8GB,83 ms/step) |
 | 语料压缩 | 5.96 bytes/token(10000 词表) |
-| 每字节编码成本 | 0.5537 bit/byte(见 [notes/training.md](notes/training.md) 的口径说明) |
+| 每字节编码成本 | 0.5121 bit/byte(见 [notes/training.md](notes/training.md) 的口径说明) |
 
-![loss 与学习率](figures/zh-1ep.png)
+![loss 与学习率](figures/zh-3ep.png)
 
 上:train(细线原始 + 粗线 EMA)与 valid(点线,标注 best);下:cosine 学习率。
-曲线无发散,valid 全程低于 train —— 1 个 epoch 尚未过拟合。
+曲线无发散;前两个 epoch valid 一直在 train 下方,容量还有余量。
+末尾 6 次 eval 里 valid 从 2.1004 回升到 2.13 附近、连续上升 4 次,
+是 3 个 epoch 预算用完的信号,但幅度约 1.5%,还不算明显过拟合。
 
 生成示例(`temperature=0.8, top_p=0.95`,前缀「从前」):
 
