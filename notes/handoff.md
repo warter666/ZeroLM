@@ -2,6 +2,30 @@
 
 > 最新在最上面。每条写清「做了什么 / 当前状态 / 下一步 / 坑」。
 
+## 2026-11-25 · 文档重构:展示型 README + notes 分层
+
+**做了什么**
+- README 从 232 行压到 **105 行**,只留:定位/实现要点/模型表/快速开始/结果/生成样例/实验入口/许可/致谢。
+- 细节拆进 `notes/`:
+  - `implementation.md`(新)模块划分、参数量账目、每步耗时、数据规模、BPE 采样策略
+  - `training.md`(新)训练配方、bits/byte 口径、多 epoch 与过拟合判据、续训陷阱
+  - `kv_cache.md`(新)KV cache 原理、两个启用前提、等价性测试、加速实测
+  - `sampling.md`(已有)保持不动
+- **修正 bits/byte 表述**:原文写"等价于把字节压缩了 14.45 倍",这是把交叉熵当成了实测压缩率。
+  正解是「理想算术编码器在该模型分布下的期望码长」,属熵意义上的估计,真实压缩还要算权重体积与编码损耗。
+  已在 `training.md` 写清,README 只留数字并链过去。
+- **品牌统一为 ZeroLM**(与 GitHub 仓库一致):README 标题、AGENTS.md 标题。
+  本地目录仍是 `~/projects/ZeroLLM`、包名仍是 `zerollm` —— **没有改名**,避免破坏脚本/记忆/云端路径。
+
+**当前状态**
+- 文档分层完成,链接与表格结构已校验(全部可达、列数一致)。
+- `zh-3ep` 训练中;`zh-3ep-tie` 与 GPU 基准仍在排队。
+
+**下一步**
+1. 两个 run 跑完 → `plot_loss.py` 画两条 valid 曲线(22.70M vs 17.58M)。
+2. 把 GPU 加速数字填进 README 与 `notes/kv_cache.md`。
+3. `zh-3ep` 若优于 2.2711,重跑 `sampling_experiment.py` 并更新 `sampling.md` 的 checkpoint 说明。
+
 ## 2026-11-25 · KV cache + CI + 3 epoch 训练开跑
 
 **做了什么**

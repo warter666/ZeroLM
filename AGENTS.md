@@ -1,4 +1,6 @@
-# ZeroLLM
+# ZeroLM
+
+> 展示名 **ZeroLM**(与 GitHub 仓库/Badge 一致);本地目录仍为 `~/projects/ZeroLLM`,Python 包名 `zerollm`。
 
 ## 目标与验收
 
