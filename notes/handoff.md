@@ -2,6 +2,37 @@
 
 > 最新在最上面。每条写清「做了什么 / 当前状态 / 下一步 / 坑」。
 
+## 2026-11-25 · KV cache + CI + 3 epoch 训练开跑
+
+**做了什么**
+- **KV cache 落地**(`model.py` + `generating.py`,commit `41eee86`):
+  缓存已旋转的 k/v、绝对位置、`[T_new, past+T_new]` mask;`use_cache=False` 时零改动。
+  只在"无 padding 且绝对位置 < context_size"时启用,否则退回整窗重算(RoPE 表长限制 + 右填充 pad 会进 attention)。
+- **正确性**:`TestKVCache` 6 条 —— prefill/decode `allclose`、greedy 与固定种子采样的 id 序列**完全相同**、
+  不等长 batch 与超 context_size 回退也一致。测试 66 → **72** 绿。
+- **新的基准脚本** `scripts/bench_generate.py`:同前缀、固定种子、`use_cache` 交替跑 N 次取中位数,
+  输出 tok/s、加速倍数,并断言两条路径输出相同。实测(CPU,B=1/B=5):**3.85× / 8.33×**。
+  GPU 数字排队中(见下)。
+- **CI 接上**(`.github/workflows/tests.yml`):torch 走 `--extra-index-url .../whl/cpu`(实测会解析到 CPU 轮子);
+  不加 `--locked`(锁里 torch 记的是 PyPI 源),测试用 `uv run --no-sync`。README 加 badge。
+- **`run_training.py` 记录峰值显存**:结束打印 `GPU 峰值显存 X MB / Y MB` 并写 `peak_memory_mb.txt`。
+- 清掉早期 60 步冒烟目录(`bench4060` / `bench_sdpa+tie+compile` 等),那些不能当消融证据。
+
+**当前状态**
+- `zh-3ep`(从零起,`num_iters=93000`,3 epoch)训练中;`zh-3ep-tie` 已排队,等前者退出自动开始
+  (`/tmp/run_tie_after.sh`,按 PID 等待,避免 "zh-3ep" 匹配到 "zh-3ep-tie")。
+- GPU 基准也排队(`/tmp/bench_after.sh`),等两个训练都结束后自动跑 B=1 / B=5 并记录峰值显存。
+
+**下一步**
+1. 两个 run 跑完 → `scripts/plot_loss.py` 把 22.70M 与 17.58M 两条 valid 曲线画同一张图。
+2. 把 GPU 加速数字填进 README 的 KV cache 表。
+3. `zh-3ep` 的 val 若优于 2.2711,重跑 `sampling_experiment.py` 并注明 checkpoint 来源。
+4. 检查 valid 是否连续 2–3 次抬头(过拟合信号);真到那步再加 dropout p=0.1。
+
+**坑**
+- `pkill -f "<脚本名>"` 会匹配到自己这条 `bash -c`,把自己杀掉(exit 143);要用 `pgrep -f "[x]xx"`。
+- 父 shell 的 PID ≠ 训练进程 PID,排队脚本必须抓 `.venv/bin/python -m zerollm.run_training` 那个 PID。
+
 ## 2026-11-25 · 收尾:图入库、top_k 测试、bits/byte、LICENSE、锁文件
 
 **做了什么**

@@ -160,6 +160,9 @@ def main(args: argparse.Namespace) -> None:
 
     t0 = time.time()
     step = start_step
+    peak_mem_mb = 0.0
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats()
     best_val, best_step = float("inf"), 0
     stop_at = args.stop_at if args.stop_at is not None else args.num_iters
     assert stop_at <= args.num_iters, "--stop-at 不能大于 --num-iters"
@@ -207,11 +210,26 @@ def main(args: argparse.Namespace) -> None:
 
         if step % args.save_interval == 0 or step == stop_at:
             save_checkpoint(model, optimizer, step, run_dir / args.checkpoint_out)
+            if device.type == "cuda":
+                # 峰值显存在存档后取: compile 的临时缓冲 / optimizer 状态都已经数齐
+                peak_mem_mb = max(peak_mem_mb, torch.cuda.max_memory_allocated() / 1024**2)
 
     save_checkpoint(model, optimizer, step, run_dir / args.checkpoint_out)
     csv_f.close()
     print(f"完成:{step} 步,产物在 {run_dir}")
-    print(f"best valid loss {best_val:.4f} @ step {best_step};画图:uv run python scripts/plot_loss.py --run-dir {run_dir}")
+    print(
+        f"best valid loss {best_val:.4f} @ step {best_step};"
+        f"画图:uv run python scripts/plot_loss.py --run-dir {run_dir}"
+    )
+    if device.type == "cuda":
+        peak_mem_mb = max(peak_mem_mb, torch.cuda.max_memory_allocated() / 1024**2)
+        total_mb = torch.cuda.get_device_properties(0).total_memory / 1024**2
+        print(
+            f"GPU 峰值显存 {peak_mem_mb:.0f} MB / {total_mb:.0f} MB "
+            f"({peak_mem_mb / total_mb * 100:.1f}%)",
+            flush=True,
+        )
+        (run_dir / "peak_memory_mb.txt").write_text(f"{peak_mem_mb:.0f}\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

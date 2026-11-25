@@ -187,6 +187,37 @@ figures/        loss 曲线等
 中图是完美直线(top-k 数量固定),右图先平后翘(top-p 自适应),左图随温度升高跑满词表。
 灰虚线 `self_ppl` 在 temperature 图的右端直接爬出屏幕 —— 那就是崩坏。
 
+> 以上数据来自 `zh-1ep`(step 31000,val 2.2711)。`zh-3ep` 训完后若更好,需重跑一遍本实验
+> 并在表中注明 checkpoint 来源 —— 旋钮的**定性**结论可复用,但具体数值跟着模型变。
+
+## 生成加速:KV cache
+
+不用 cache 时,每生成一个 token 都要把整段前缀重算一遍:200 token 就是 200 次长度 256 的前向,
+复杂度 O(n²)。加上 cache 后是 **1 次 prefill + 200 次长度 1 的 decode**。
+
+实现(`generating.py` + `model.py`):
+
+- 每层缓存**已经旋转过**的 k/v,新 token 用绝对位置(`offset = past_len`);
+  不对已缓存的 k 再旋转一次 —— 这是 KV cache 最常写错的地方。
+- mask 从 `[T, T]` 扩成 `[T_new, past + T_new]`(`_offset_causal_mask`)。
+- 两个前提下才启用,否则自动退回整窗重算:
+  1. **无 padding** —— 右填充的 pad(0) 会真的进 attention,污染同批的长 prompt;
+  2. **绝对位置 < `context_size`** —— RoPE 查表长度就是 `context_length`,超了会越界。
+
+正确性由 `tests/test_generating.py::TestKVCache` 钉住:prefill 的 logits 与整段前向 `allclose`、
+增量 decode 与整段重算一致,且**两条路径的输出逐 id 完全相同**(greedy 和固定种子采样都测)。
+
+实测(同一前缀、固定种子、交替跑取中位数;`uv run python scripts/bench_generate.py`):
+
+| 配置 | 无 cache | 有 cache | 加速 |
+| --- | --- | --- | --- |
+| CPU,B=1,200 token | 8.46s | 2.20s | **3.85×** |
+| CPU,B=5,200 token | 29.63s | 3.56s | **8.33×** |
+
+加速比随批量变大 —— 因为 CPU 上每步的固定开销(Python 调度、内核启动)占比很高,
+批量越大摊得越薄。GPU 上固定开销小得多,decode 的单 token 前向更便宜,加速比应在两位数;
+GPU 实测数字等训练腾出卡后补入本表。
+
 ## 许可
 
 代码 MIT([LICENSE](LICENSE))。语料 [TinyStories-Zh-2M](https://huggingface.co/datasets/RobinChen2001/TinyStories-Zh-2M) 亦为 MIT;
