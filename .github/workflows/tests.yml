@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      # 只用 CPU 跑测试。必须带 --extra-index-url 指向 PyTorch 的 CPU 源,
+      # 否则 uv 会从 PyPI 装 Linux 的 CUDA 轮子(2GB+,CI 里纯属浪费)。
+      # 注意不要加 --locked / --frozen:uv.lock 里的 torch 记录的是 PyPI 源,
+      # 强制锁死会拒绝换成 CPU 轮子。
+      - name: 安装依赖(CPU 版 torch)
+        run: uv sync --group dev --extra-index-url https://download.pytorch.org/whl/cpu
+
+      # --no-sync:避免 uv run 重新解析依赖、把 CPU 版 torch 换回 CUDA 版
+      - name: 跑测试
+        run: uv run --no-sync pytest -q

@@ -1,5 +1,7 @@
 # ZeroLLM
 
+[![tests](https://github.com/warter666/ZeroLM/actions/workflows/tests.yml/badge.svg)](https://github.com/warter666/ZeroLM/actions/workflows/tests.yml)
+
 From zero to LLM:从零开始(不依赖任何框架内置的 Transformer 实现)训练一个中文小语言模型,作为 [Stanford CS336: Language Modeling from Scratch](https://stanford-cs336.github.io/) Assignment 1 的课程实践项目。
 
 课程作业的原题是在英文 TinyStories 上复现一个 GPT 风格的语言模型;本项目把语料换成中文,把整条流水线——分词、模型、优化、训练、采样——全部亲手实现一遍,以检验课程内容是否真正掌握。

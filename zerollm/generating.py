@@ -27,12 +27,17 @@ def generate_ids(
     top_p: float = 0.95,
     top_k: int | None = None,
     eos_id: int | None = None,
+    use_cache: bool = True,
 ) -> tuple[list[list[int]], list[int], dict[str, float]]:
     """采样续写,返回 (每个序列的完整 id 列表, 各自 prompt 的 token 长度, 统计)。
 
     拿到 prompt 长度就能切出"纯续写"部分做统计,不必反解字符串。
     stats 里 `avg_candidates` / `std_candidates` = 每步保留的候选 token 数的均值与标准差,
     用来实证 "top-k 固定数量 / top-p 自适应数量":top-k 的 std 恒为 0,top-p 显著大于 0。
+
+    use_cache=True 时走 KV cache:1 次 prefill + 每步只算 1 个新 token(而非重算整段)。
+    只在"所有 prompt 等长(无 pad)"且"累计长度不超过 context_size"时生效,
+    否则退回整窗重算 —— 两条路径的输出逐 token 完全相同(有测试钉住)。
     """
     assert temperature > 0, "temperature 必须 > 0"
     assert 0 < top_p <= 1.0, "top_p 必须落在 (0, 1]"
@@ -53,9 +58,19 @@ def generate_ids(
     kept_counts: list[float] = []
 
     model.eval()
+
+    # 何时能用 cache:
+    #   1) 没有 padding —— 右填充的 pad(0) 会真的进 attention,同一批里长 prompt 会被污染;
+    #   2) 绝对位置 < context_size —— RoPE 查表长度就是 context_length,超了就取越界。
+    cache_ok = use_cache and max_len <= context_size and all(len(e) == max_len for e in encoded)
+    kv = None
+    if cache_ok:
+        logits, kv = model(ids, use_cache=True)
+        logits = logits[:, -1, :].clone()
+    else:
+        logits = model(ids[:, -context_size:])[:, -1, :]
+
     for _ in range(max_new_tokens):
-        ctx = ids[:, -context_size:]
-        logits = model(ctx)[:, -1, :]  # [B, V]
         logits = logits / temperature
         probs = torch.softmax(logits, dim=-1)
 
@@ -78,6 +93,20 @@ def generate_ids(
             if bool(finished.all()):
                 break
 
+        # 算下一步的 logits:能续 cache 就只算 1 个 token,否则重算整窗
+        total = ids.shape[1]
+        if cache_ok and kv is not None and total <= context_size:
+            logits, kv = model(
+                next_ids,
+                token_positions=torch.tensor([total - 1], device=device),
+                past_kv=kv,
+                use_cache=True,
+            )
+            logits = logits[:, -1, :].clone()
+        else:
+            kv = None  # 退回整窗重算:位置重新从 0 数,与 cache 路径等价
+            logits = model(ids[:, -context_size:])[:, -1, :]
+
     out = [ids[i, : lengths[i] + max_new_tokens].tolist() for i in range(len(prompt_list))]
     n_kept = kept_counts or [0.0]
     mean_kept = sum(n_kept) / len(n_kept)
@@ -97,11 +126,13 @@ def generate(
     top_p: float = 0.95,
     top_k: int | None = None,
     eos_id: int | None = None,
+    use_cache: bool = True,
 ) -> list[str]:
     """给一个或多个 prompt 续写;返回解码后的完整文本(含 prompt)。"""
     ids, _, _stats = generate_ids(
         prompts, model, tokenizer,
         device=device, context_size=context_size, max_new_tokens=max_new_tokens,
         temperature=temperature, top_p=top_p, top_k=top_k, eos_id=eos_id,
+        use_cache=use_cache,
     )
     return [tokenizer.decode(seq) for seq in ids]

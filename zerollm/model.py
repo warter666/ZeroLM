@@ -173,23 +173,54 @@ class MultiHeadSelfAttention(nn.Module):
                 persistent=False,
             )
 
-    def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        token_positions: torch.Tensor | None = None,
+        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ):
+        """past_kv: 之前已缓存的 (k, v),形状 [B, H, T_past, head_dim],**已旋转过**。
+
+        token_positions 必须给绝对位置:缓存的 k 不再重新旋转,新 token 的位置
+        要从 T_past 开始数 —— 这是 KV cache 最常写错的地方。
+        """
         *batch, seq, _ = x.shape
         q = self.q_proj(x).view(*batch, seq, self.num_heads, self.head_dim).transpose(-2, -3)
         k = self.k_proj(x).view(*batch, seq, self.num_heads, self.head_dim).transpose(-2, -3)
         v = self.v_proj(x).view(*batch, seq, self.num_heads, self.head_dim).transpose(-2, -3)
         if self.rope is not None:
             if token_positions is None:
-                token_positions = torch.arange(seq, device=x.device)
+                offset = 0 if past_kv is None else past_kv[0].shape[-2]
+                token_positions = torch.arange(offset, offset + seq, device=x.device)
             q = self.rope(q, token_positions)
             k = self.rope(k, token_positions)
+        if past_kv is not None:
+            k = torch.cat([past_kv[0], k], dim=-2)
+            v = torch.cat([past_kv[1], v], dim=-2)
+        present = (k, v) if use_cache else None
+        past_len = k.shape[-2] - seq
         if self.use_sdpa:
-            ctx = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
+            if past_len == 0:
+                ctx = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
+            else:
+                # True = 参与 attention(SDPA 对 bool mask 就是这个语义)
+                mask = self._offset_causal_mask(seq, past_len, x.device)
+                ctx = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask)
         else:
-            mask = self.causal_mask[:seq, :seq]
+            mask = self._offset_causal_mask(seq, past_len, x.device)
             ctx = scaled_dot_product_attention(q, k, v, mask)
         ctx = ctx.transpose(-2, -3).contiguous().view(*batch, seq, self.d_model)
-        return self.output_proj(ctx)
+        out = self.output_proj(ctx)
+        return (out, present) if use_cache else out
+
+    def _offset_causal_mask(self, seq: int, past_len: int, device) -> torch.Tensor:
+        """[seq, past_len+seq] 的可见性矩阵:列 j <= past_len + 行 i 时可见。"""
+        if past_len == 0:
+            return self.causal_mask[:seq, :seq]
+        rows = torch.arange(seq, device=device)[:, None] + past_len
+        cols = torch.arange(past_len + seq, device=device)[None, :]
+        return cols <= rows
 
 
 class TransformerBlock(nn.Module):
@@ -212,10 +243,21 @@ class TransformerBlock(nn.Module):
         self.ln2 = RMSNorm(d_model)
         self.ffn = SwiGLU(d_model, d_ff)
 
-    def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
-        x = x + self.attn(self.ln1(x), token_positions)
+    def forward(
+        self,
+        x: torch.Tensor,
+        token_positions: torch.Tensor | None = None,
+        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ):
+        out = self.attn(self.ln1(x), token_positions, past_kv, use_cache)
+        if use_cache:
+            attn_out, present = out
+        else:
+            attn_out, present = out, None
+        x = x + attn_out
         x = x + self.ffn(self.ln2(x))
-        return x
+        return (x, present) if use_cache else x
 
 
 class TransformerLM(nn.Module):
@@ -255,17 +297,34 @@ class TransformerLM(nn.Module):
         self.tie_embeddings = tie_embeddings
         self.lm_head = None if tie_embeddings else Linear(d_model, vocab_size, device=device, dtype=dtype)
 
-    def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
-        """x: [B, S] 的 token id -> logits: [B, S, vocab_size]。"""
+    def forward(
+        self,
+        x: torch.Tensor,
+        token_positions: torch.Tensor | None = None,
+        past_kv: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
+        use_cache: bool = False,
+    ):
+        """x: [B, S] 的 token id -> logits: [B, S, vocab_size]。
+
+        use_cache=True 时额外返回 present_kv(每层一个 (k, v)),形状 [B, H, T, head_dim];
+        下次把 past_kv=present_kv 传回来,配合绝对位置即可只算新 token。
+        注意:位置不能超过 context_length(RoPE 查表就那么长),超出需自行重建缓存。
+        """
         if token_positions is None:
-            token_positions = torch.arange(x.shape[-1], device=x.device)
+            offset = 0 if past_kv is None else past_kv[0][0].shape[-2]
+            token_positions = torch.arange(offset, offset + x.shape[-1], device=x.device)
         h = self.token_embeddings(x)
-        for layer in self.layers:
-            h = layer(h, token_positions)
+        new_kv: list[tuple[torch.Tensor, torch.Tensor]] = []
+        for i, layer in enumerate(self.layers):
+            layer_past = None if past_kv is None else past_kv[i]
+            if use_cache:
+                h, present = layer(h, token_positions, layer_past, True)
+                new_kv.append(present)
+            else:
+                h = layer(h, token_positions, layer_past, False)
         h = self.ln_final(h)
-        if self.lm_head is None:
-            return h @ self.token_embeddings.weight.T
-        return self.lm_head(h)
+        logits = h @ self.token_embeddings.weight.T if self.lm_head is None else self.lm_head(h)
+        return (logits, new_kv) if use_cache else logits
 
     def num_parameters(self, exclude_embeddings: bool = False) -> int:
         n = sum(p.numel() for p in self.parameters())

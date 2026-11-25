@@ -134,3 +134,73 @@ class TestGenerateIds:
         ids, lens, stats = generate_ids(["从前", "小猫喝水"], model, tok, max_new_tokens=4)
         assert len(ids) == len(lens) == 2
         assert set(stats) == {"avg_candidates", "std_candidates"}
+
+
+class TestKVCache:
+    """KV cache 的正确性:带 cache 与不带 cache 必须逐 token 完全相同。"""
+
+    def test_prefill_matches_full_forward(self, tiny):
+        """prefill 的 logits 要和整段前向 allclose(位置编码没写错的必要条件)。"""
+        _, model = tiny
+        x = torch.randint(0, 50, (2, 8))
+        full = model(x)
+        logits, kv = model(x, use_cache=True)
+        assert torch.allclose(full, logits, atol=1e-5)
+        assert len(kv) == len(model.layers)
+        assert kv[0][0].shape[-2] == 8
+
+    def test_incremental_decode_matches_full(self, tiny):
+        """decode 一个 token 的 logits 要和"整段重算的最后一个位置"一致。"""
+        _, model = tiny
+        x = torch.randint(0, 50, (1, 6))
+        nxt = torch.randint(0, 50, (1, 1))
+        _, kv = model(x, use_cache=True)
+        one, kv2 = model(nxt, token_positions=torch.tensor([6]), past_kv=kv, use_cache=True)
+        ref = model(torch.cat([x, nxt], dim=1))[:, -1:, :]
+        assert torch.allclose(one, ref, atol=1e-5)
+        assert kv2[0][0].shape[-2] == 7
+
+    def test_greedy_identical(self, tiny):
+        """top_k=1 是确定性的:两条路径的 id 序列必须一模一样。"""
+        tok, model = tiny
+        a = generate_ids("从前", model, tok, max_new_tokens=10, top_k=1, use_cache=True)[0]
+        b = generate_ids("从前", model, tok, max_new_tokens=10, top_k=1, use_cache=False)[0]
+        assert a == b
+
+    def test_sampling_identical_with_same_seed(self, tiny):
+        """采样:同 seed 下两条路径消耗相同的随机数,id 序列应相同。"""
+        tok, model = tiny
+        cases = (("top_p=0.9", 0.9, 1.0), ("top_p=0.95", 0.95, 1.0), ("t=0.8", 0.95, 0.8))
+        for name, top_p, temperature in cases:
+            torch.manual_seed(11)
+            a = generate_ids(
+                "从前", model, tok, max_new_tokens=10, use_cache=True,
+                top_p=top_p, temperature=temperature,
+            )[0]
+            torch.manual_seed(11)
+            b = generate_ids(
+                "从前", model, tok, max_new_tokens=10, use_cache=False,
+                top_p=top_p, temperature=temperature,
+            )[0]
+            assert a == b, f"{name} 下两条路径不一致"
+
+    def test_unequal_length_batch_disables_cache(self, tiny):
+        """不等长 batch 有右填充 pad,cache 应自动关闭,且结果与不开 cache 一致。"""
+        tok, model = tiny
+        prompts = ["从前", "从前有一只小猫"]
+        torch.manual_seed(5)
+        a = generate_ids(prompts, model, tok, max_new_tokens=6, top_k=1, use_cache=True)[0]
+        torch.manual_seed(5)
+        b = generate_ids(prompts, model, tok, max_new_tokens=6, top_k=1, use_cache=False)[0]
+        assert a == b
+
+    def test_falls_back_past_context_size(self, tiny):
+        """长度超过 context_size 后回退到整窗重算,结果仍须一致(RoPE 表只有那么长)。"""
+        tok, model = tiny
+        torch.manual_seed(7)
+        a = generate_ids("从前", model, tok, max_new_tokens=14, top_k=1,
+                         context_size=8, use_cache=True)[0]
+        torch.manual_seed(7)
+        b = generate_ids("从前", model, tok, max_new_tokens=14, top_k=1,
+                         context_size=8, use_cache=False)[0]
+        assert a == b
