@@ -2,6 +2,33 @@
 
 > 最新在最上面。每条写清「做了什么 / 当前状态 / 下一步 / 坑」。
 
+## 2026-11-25 · 收尾:图入库、top_k 测试、bits/byte、LICENSE、锁文件
+
+**做了什么**
+- README 贴图:`figures/zh-1ep.png`(loss + cosine LR)进「训练结果」节,
+  `figures/sampling_zh-1ep.png` 进「采样旋钮实验」节;删掉 benchmark 临时图,两图共 240KB 入库。
+- 补 `top_k` 测试(之前只测 top_p/temperature):`top_k=1` 等价贪心、候选数恒等 k 且 `std==0`、
+  top-p 的 `std>0` 作对照、top-k+top-p 叠加、非法参数、`generate_ids` 的 prompt 长度。测试 59 → **66**。
+- 新增 `scripts/report.py`:一键报 best valid / bits-token / bytes-token / bits-byte。
+  本仓库 **bits/byte = 0.5537**(2.2711 / ln2 / 5.9178),等价压缩 14.45 倍。
+  README 写清口径:英文 val 1.36 与中文 2.2711 不是同一把尺子,跨分词器必须折成 bits/byte。
+- 新增 `LICENSE`(MIT © 2026 warter666)与 README「许可」节。
+- **提交了 `uv.lock`**:之前一直是旧状态(`requires-python >=3.12` + tsinghua 源)与 pyproject 不一致,
+  `uv lock --check` 验证一致后再提交,以后 `uv sync` 不会再产生 1900 行漂移。
+
+**当前状态**
+- 工作区干净,66 测试全绿,8 个 commit。
+- 全流程产物齐备:数据 / BPE / 1 epoch 训练 / 生成 / loss 曲线 / 采样实验与结论 / 图入库。
+
+**下一步(可选,按收益排序)**
+1. 再训 1–2 epoch(每轮约 45 分钟,loss 尾部仍在降),或加 `--tie-embeddings`(17.58M)做消融。
+2. 上 A10 试更大模型:`bash scripts/upload_data.sh <user>@<host>:~/ZeroLLM` 只传 0.5GB。
+3. 可选工程项:生成加 KV cache(现在每步重算整个上下文)、加 GitHub Actions 跑 pytest。
+
+**坑**
+- 多 epoch 前注意代码里**没有 dropout**,虽然目前 valid 一直在 train 下方(未过拟合),但多轮后要看紧。
+- 改 `--sample-mb` / 改配置重跑时,旧的 `*.state.json`、`sample.txt` 会被复用,先清目录。
+
 ## 2026-11-25 · 训练完成 1 epoch,采样实验与结论落地
 
 **做了什么**
