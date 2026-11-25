@@ -17,7 +17,10 @@ __pycache__/
 *.swp
 experiments/*/
 
-# 个人笔记与本地 agent 配置:仅本地保留,不参与提交
-notes/
+# 本地 agent 配置:仅本地保留,不参与提交
 AGENTS.md
 CLAUDE.md
+
+# 交接日志是工作流水(会话进度/下一步/踩坑),属于过程记录,不入库;
+# 其余 notes/ 是长期文档,正常提交
+notes/handoff.md
