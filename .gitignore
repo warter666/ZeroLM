@@ -16,3 +16,8 @@ __pycache__/
 .DS_Store
 *.swp
 experiments/*/
+
+# 个人笔记与本地 agent 配置:仅本地保留,不参与提交
+notes/
+AGENTS.md
+CLAUDE.md

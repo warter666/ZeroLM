@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -37,15 +38,18 @@ def download(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
     print(f"下载 {url}")
-    with urllib.request.urlopen(url) as r, open(tmp, "wb") as f:
-        total = int(r.headers.get("Content-Length") or 0)
-        with tqdm(total=total, unit="B", unit_scale=True, desc=dest.name) as bar:
-            while True:
-                chunk = r.read(1 << 20)
-                if not chunk:
-                    break
-                f.write(chunk)
-                bar.update(len(chunk))
+    try:
+        with urllib.request.urlopen(url) as r, open(tmp, "wb") as f:
+            total = int(r.headers.get("Content-Length") or 0)
+            with tqdm(total=total, unit="B", unit_scale=True, desc=dest.name) as bar:
+                while True:
+                    chunk = r.read(1 << 20)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    bar.update(len(chunk))
+    except (urllib.error.URLError, OSError) as e:
+        raise SystemExit(f"下载失败 {url}: {e}") from e
     tmp.replace(dest)
 
 
@@ -72,33 +76,38 @@ def main() -> None:
     n_train = n_valid = 0
     written = 0
     exhausted = False
-    with open(train_path, "w", encoding="utf-8") as ftr, open(valid_path, "w", encoding="utf-8") as fva:
-        for rel in FILES:
-            if exhausted:
-                break
-            pf = pq.ParquetFile(raw_dir / Path(rel).name)
-            total = pf.metadata.num_rows
-            for batch in pf.iter_batches(batch_size=10000, columns=["text"]):
-                texts = batch.column("text").to_pylist()
-                for t in texts:
-                    if args.max_docs and written >= args.max_docs:
-                        exhausted = True
-                        break
-                    t = (t or "").strip()
-                    if not t:
-                        continue
-                    # 每 N 篇取 1 篇进验证集(按 valid_ratio 粗粒度分配)
-                    if (written % max(int(round(1 / args.valid_ratio)), 1)) == 0:
-                        fva.write(t + "\n" + EOT + "\n")
-                        n_valid += 1
-                    else:
-                        ftr.write(t + "\n" + EOT + "\n")
-                        n_train += 1
-                    written += 1
-            if not args.max_docs:
-                print(f"{rel}: {total} rows 已处理")
-            elif exhausted:
-                print(f"达到 --max-docs {args.max_docs},停止(未下载后续 parquet)")
+    try:
+        with open(train_path, "w", encoding="utf-8") as ftr, open(
+            valid_path, "w", encoding="utf-8"
+        ) as fva:
+            for rel in FILES:
+                if exhausted:
+                    break
+                pf = pq.ParquetFile(raw_dir / Path(rel).name)
+                total = pf.metadata.num_rows
+                for batch in pf.iter_batches(batch_size=10000, columns=["text"]):
+                    texts = batch.column("text").to_pylist()
+                    for t in texts:
+                        if args.max_docs and written >= args.max_docs:
+                            exhausted = True
+                            break
+                        t = (t or "").strip()
+                        if not t:
+                            continue
+                        # 每 N 篇取 1 篇进验证集(按 valid_ratio 粗粒度分配)
+                        if (written % max(int(round(1 / args.valid_ratio)), 1)) == 0:
+                            fva.write(t + "\n" + EOT + "\n")
+                            n_valid += 1
+                        else:
+                            ftr.write(t + "\n" + EOT + "\n")
+                            n_train += 1
+                        written += 1
+                if not args.max_docs:
+                    print(f"{rel}: {total} rows 已处理")
+                elif exhausted:
+                    print(f"达到 --max-docs {args.max_docs},停止(未下载后续 parquet)")
+    except OSError as e:
+        raise SystemExit(f"无法写 {train_path} / {valid_path}: {e}") from e
     print(f"train docs: {n_train}, valid docs: {n_valid}")
     print(f"输出:{train_path} , {valid_path}")
 

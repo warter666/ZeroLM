@@ -1,4 +1,4 @@
-"""zerollm.train_bpe 测试:中文语料正确性、流式读取等价、save/load 自洽。"""
+"""zerolm.train_bpe 测试:中文语料正确性、流式读取等价、save/load 自洽。"""
 
 import os
 import sys
@@ -6,7 +6,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from zerollm.train_bpe import train_bpe, gpt2pat
+from zerolm.train_bpe import train_bpe
 
 CHINESE_SAMPLE = """从前的从前，有一只小兔子。它住在森林边上，每天早上都会去看太阳升起。
 小兔子最喜欢吃胡萝卜，特别是下过雨之后的那种。
@@ -66,7 +66,7 @@ class TestTrainBPE:
             full_chars = [v for v in vocab.values() if len(v) == 3 and _decodes_cleanly(v)]
             assert full_chars, "没有学到完整的汉字 token"
 
-            from zerollm.tokenizer import Tokenizer
+            from zerolm.tokenizer import Tokenizer
 
             tok = Tokenizer(vocab, merges, [])
             n_tokens = len(tok.encode(text))
@@ -80,7 +80,7 @@ class TestTrainBPE:
 
         用小 CHUNK 打桩模拟分块,验证 tail 逻辑不丢内容。
         """
-        import zerollm.train_bpe as m
+        import zerolm.train_bpe as m
 
         path = _write_tmp(CHINESE_SAMPLE)
         try:

@@ -1,4 +1,4 @@
-"""BPE 训练(改编自本人 cs336 assignment1-basics 已通过官方测试的实现)。
+r"""BPE 训练(改编自本人 cs336 assignment1-basics 已通过官方测试的实现)。
 
 与课程版的差异:
 - 对外暴露 `train_bpe(input_path, vocab_size, special_tokens, pattern=...)` 纯函数接口,
@@ -22,13 +22,13 @@ CHUNK_SIZE = 16 * 1024 * 1024  # 流式读取块大小:16MB
 
 def get_stats(word, freq, stats=None):
     stats = {} if stats is None else stats
-    for pair in zip(word, word[1:]):
+    for pair in zip(word, word[1:], strict=False):
         stats[pair] = stats.get(pair, 0) + freq
     return stats
 
 
 def get_words(word, words):
-    for pair in zip(word, word[1:]):
+    for pair in zip(word, word[1:], strict=False):
         if pair not in words:
             words[pair] = set()
         words[pair].add(word)
@@ -75,18 +75,23 @@ def train_bpe(
 
     def text_chunks():
         tail = ""
-        with open(input_path, encoding="utf-8", errors="replace") as f:
-            while True:
-                chunk = f.read(CHUNK_SIZE)
-                if not chunk:
-                    if tail:
-                        yield tail
-                    return
-                chunk = tail + chunk
-                parts = sp_split.split(chunk)
-                # 末片可能是被截断的 special token 或普通文本,留到下一块
-                tail = parts.pop()
-                yield from parts
+        try:
+            with open(input_path, encoding="utf-8", errors="replace") as f:
+                while True:
+                    chunk = f.read(CHUNK_SIZE)
+                    if not chunk:
+                        if tail:
+                            yield tail
+                        return
+                    chunk = tail + chunk
+                    parts = sp_split.split(chunk)
+                    # 末片可能是被截断的 special token 或普通文本,留到下一块
+                    tail = parts.pop()
+                    yield from parts
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"找不到语料 {input_path}: {e}") from e
+        except OSError as e:
+            raise OSError(f"读取语料 {input_path} 失败: {e}") from e
 
     t0 = time.time()
     counts = _pretokenize_counts(text_chunks(), pattern)
@@ -133,7 +138,7 @@ def train_bpe(
             del counts[curw]
             get_stats(neww, f, stats)
             get_stats(curw, -f, stats)
-            for p in zip(curw, curw[1:]):
+            for p in zip(curw, curw[1:], strict=False):
                 words[p].discard(curw)
             get_words(neww, words)
         merges.append((vocab[pair[0]], vocab[pair[1]]))

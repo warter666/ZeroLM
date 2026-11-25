@@ -1,7 +1,7 @@
 """训练入口:CLI、评估、断点续训、metrics.csv 记录。
 
 用法:
-    uv run python -m zerollm.run_training \
+    uv run python -m zerolm.run_training \
         --experiment-name zh-10k --train-data data/zh_train.npy --valid-data data/zh_valid.npy \
         --vocab-size 10000 --device cuda
 """
@@ -18,9 +18,9 @@ from typing import cast
 import numpy as np
 import torch
 
-from zerollm.loss_optimizer import AdamW, clip_gradients, cosine_lr, cross_entropy
-from zerollm.model import TransformerLM
-from zerollm.training import get_batch, load_checkpoint, save_checkpoint
+from zerolm.loss_optimizer import AdamW, clip_gradients, cosine_lr, cross_entropy
+from zerolm.model import TransformerLM
+from zerolm.training import get_batch, load_checkpoint, save_checkpoint
 
 
 def build_argparser() -> argparse.ArgumentParser:

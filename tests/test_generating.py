@@ -1,4 +1,4 @@
-"""zerollm.generating 测试:top-p 采样输出形状、prompt 保留、批量、温度校验。"""
+"""zerolm.generating 测试:top-p 采样输出形状、prompt 保留、批量、温度校验。"""
 
 import os
 import sys
@@ -8,10 +8,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import torch
 
-from zerollm.generating import generate, generate_ids
-from zerollm.model import TransformerLM
-from zerollm.tokenizer import Tokenizer
-from zerollm.train_bpe import train_bpe
+from zerolm.generating import generate, generate_ids
+from zerolm.model import TransformerLM
+from zerolm.tokenizer import Tokenizer
+from zerolm.train_bpe import train_bpe
 
 
 @pytest.fixture(scope="module")

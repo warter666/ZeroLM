@@ -1,4 +1,4 @@
-"""zerollm.loss_optimizer 测试:交叉熵、AdamW 更新式、学习率调度、梯度裁剪。"""
+"""zerolm.loss_optimizer 测试:交叉熵、AdamW 更新式、学习率调度、梯度裁剪。"""
 
 import math
 import os
@@ -10,7 +10,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from zerollm.loss_optimizer import AdamW, clip_gradients, cosine_lr, cross_entropy
+from zerolm.loss_optimizer import AdamW, clip_gradients, cosine_lr, cross_entropy
 
 
 class TestCrossEntropy:

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import torch
 
-from zerollm.tokenizer import Tokenizer
+from zerolm.tokenizer import Tokenizer
 
 
 @torch.no_grad()

@@ -37,7 +37,7 @@ RPATH="${DEST#*:}"
 [ "$RPATH" != "$DEST" ] || { echo "目标要写成 user@host:/path" >&2; exit 1; }
 
 echo "== 本地校验和(到云端后可核对)=="
-sha256sum "${FILES[@]}" | tee /tmp/zerollm_upload.sha256
+sha256sum "${FILES[@]}" | tee /tmp/zerolm_upload.sha256
 echo "== 大小 =="
 du -h "${FILES[@]}"
 
@@ -66,5 +66,5 @@ ssh "${PORT_ARGS[@]}" "$HOST" "cd '$RPATH' && sha256sum data/tokenizer/vocab.jso
 echo
 echo "核对上面的 sha256 与本地一致即可。云端接着跑:"
 echo "  cd $RPATH && export PYTHONPATH=\$PWD"
-echo "  python -m zerollm.run_training --experiment-name smoke ...   # 冒烟"
+echo "  python -m zerolm.run_training --experiment-name smoke ...   # 冒烟"
 echo "  bash scripts/train_cloud_sys.sh train                        # 正式训练"

@@ -1,4 +1,4 @@
-"""zerollm.training 测试:批采样与 checkpoint 存取。"""
+"""zerolm.training 测试:批采样与 checkpoint 存取。"""
 
 import os
 import sys
@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 import torch
 
-from zerollm.loss_optimizer import AdamW
-from zerollm.model import TransformerLM
-from zerollm.training import get_batch, load_checkpoint, save_checkpoint
+from zerolm.loss_optimizer import AdamW
+from zerolm.model import TransformerLM
+from zerolm.training import get_batch, load_checkpoint, save_checkpoint
 
 
 class TestGetBatch:

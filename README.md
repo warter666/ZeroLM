@@ -42,7 +42,7 @@ uv run python scripts/download_data.py    # 下载中文 TinyStories
 uv run python scripts/train_tokenizer.py  # 训练 BPE(10k 词表)
 uv run python scripts/prepare_data.py     # 全量编码为 .npy(多进程,可断点续跑)
 
-uv run python -m zerollm.run_training --experiment-name first \
+uv run python -m zerolm.run_training --experiment-name first \
   --train-data data/zh_train.npy --valid-data data/zh_valid.npy \
   --vocab-size 10000 --sdpa --compile --device cuda
 

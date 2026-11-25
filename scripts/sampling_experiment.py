@@ -32,10 +32,10 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from zerollm.generating import generate_ids
-from zerollm.model import TransformerLM
-from zerollm.tokenizer import Tokenizer
-from zerollm.training import load_checkpoint
+from zerolm.generating import generate_ids
+from zerolm.model import TransformerLM
+from zerolm.tokenizer import Tokenizer
+from zerolm.training import load_checkpoint
 
 DEFAULT_PROMPTS = [
     "从前有一只小兔子，它",

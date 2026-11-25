@@ -70,32 +70,46 @@ class Tokenizer:
         merges_path: str,
         special_tokens: list[str] | None = None,
         pattern: str = DEFAULT_PATTERN,
-    ) -> "Tokenizer":
-        with open(vocab_path, encoding="utf-8") as f:
-            raw = json.load(f)
+    ) -> Tokenizer:
+        try:
+            with open(vocab_path, encoding="utf-8") as f:
+                raw = json.load(f)
+        except OSError as e:
+            raise FileNotFoundError(f"读不到词表 {vocab_path}: {e}") from e
+        except json.JSONDecodeError as e:
+            raise ValueError(f"词表 {vocab_path} 不是合法 JSON: {e}") from e
         vocab = {int(k): v.encode("latin-1") for k, v in raw.items()}
         merges: list[tuple[bytes, bytes]] = []
-        with open(merges_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                a, b = line.split()
-                merges.append((vocab[int(a)], vocab[int(b)]))
+        try:
+            with open(merges_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    a, b = line.split()
+                    merges.append((vocab[int(a)], vocab[int(b)]))
+        except OSError as e:
+            raise FileNotFoundError(f"读不到 merges {merges_path}: {e}") from e
         return cls(vocab, merges, special_tokens=special_tokens, pattern=pattern)
 
     def save(self, vocab_path: str, merges_path: str) -> None:
-        with open(vocab_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {str(i): b.decode("latin-1") for i, b in sorted(self.vocab.items())},
-                f,
-                ensure_ascii=True,
-            )
+        try:
+            with open(vocab_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {str(i): b.decode("latin-1") for i, b in sorted(self.vocab.items())},
+                    f,
+                    ensure_ascii=True,
+                )
+        except OSError as e:
+            raise OSError(f"写不了词表 {vocab_path}: {e}") from e
         id_of = self._bytes_to_id
-        with open(merges_path, "w", encoding="utf-8") as f:
-            f.write("#version: zerollm-bpe\n")
-            for a, b in self.merges:
-                f.write(f"{id_of[a]} {id_of[b]}\n")
+        try:
+            with open(merges_path, "w", encoding="utf-8") as f:
+                f.write("#version: zerolm-bpe\n")
+                for a, b in self.merges:
+                    f.write(f"{id_of[a]} {id_of[b]}\n")
+        except OSError as e:
+            raise OSError(f"写不了 merges {merges_path}: {e}") from e
 
     @property
     def vocab_size(self) -> int:
@@ -151,7 +165,7 @@ class Tokenizer:
         while len(parts) >= 2:
             best = None
             best_rank = None
-            for pair in zip(parts, parts[1:]):
+            for pair in zip(parts, parts[1:], strict=False):
                 r = self.merge_ranks.get(pair)
                 if r is not None and (best_rank is None or r < best_rank):
                     best, best_rank = pair, r

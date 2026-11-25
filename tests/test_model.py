@@ -1,4 +1,4 @@
-"""zerollm.model 测试:形状、因果性、RoPE 性质、初始化、梯度。"""
+"""zerolm.model 测试:形状、因果性、RoPE 性质、初始化、梯度。"""
 
 import os
 import sys
@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import torch
 
-from zerollm.model import (
+from zerolm.model import (
     Embedding,
     Linear,
     MultiHeadSelfAttention,

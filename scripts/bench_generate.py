@@ -28,9 +28,9 @@ from pathlib import Path
 
 import torch
 
-from zerollm.generating import generate_ids
-from zerollm.model import TransformerLM
-from zerollm.tokenizer import Tokenizer
+from zerolm.generating import generate_ids
+from zerolm.model import TransformerLM
+from zerolm.tokenizer import Tokenizer
 
 
 def load_run(run_dir: Path, device: str):

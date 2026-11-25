@@ -42,7 +42,7 @@ do_prep() {
 
 do_train() {
   echo "== 训练(默认配置,见 README) =="
-  uv run python -m zerollm.run_training \
+  uv run python -m zerolm.run_training \
     --experiment-name "zh-10k-$(date +%m%d-%H%M)" \
     --train-data data/zh_train.npy --valid-data data/zh_valid.npy \
     --vocab-size 10000 --context-length 256 \

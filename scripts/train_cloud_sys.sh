@@ -52,7 +52,7 @@ train() {
   [ -n "${STOP_AT:-}" ] && EXTRA+=( "--stop-at" "$STOP_AT" )
   [ -n "${RESUME:-}" ] && EXTRA+=( "--checkpoint-in" "$RESUME" )
   echo "== 训练: iters=$ITERS sdpa=1 compile=${COMPILE:-1} tie=${TIE:-0} =="
-  python -m zerollm.run_training \
+  python -m zerolm.run_training \
     --experiment-name "${RUN_NAME:-zh-$(date +%m%d-%H%M)}" \
     --train-data data/zh_train.npy --valid-data data/zh_valid.npy \
     --vocab-size 10000 --context-length 256 \
@@ -69,7 +69,7 @@ smoke() {
   python scripts/train_tokenizer.py --vocab-size 2000 --sample-mb 20 --out-dir data/tokenizer_smoke
   python scripts/prepare_data.py --tokenizer-dir data/tokenizer_smoke --out-dir data/smoke \
     --limit-docs 500 --workers 4 --skip-valid
-  python -m zerollm.run_training --experiment-name smoke --run-root experiments \
+  python -m zerolm.run_training --experiment-name smoke --run-root experiments \
     --train-data data/smoke/zh_train.npy --valid-data data/smoke/zh_train.npy \
     --vocab-size 2000 --context-length 64 --d-model 128 --num-layers 2 --num-heads 4 --d-ff 256 \
     --batch-size 16 --num-iters 30 --warmup-iters 5 --eval-interval 10 --eval-iters 2 \

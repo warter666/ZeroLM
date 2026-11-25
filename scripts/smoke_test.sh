@@ -21,7 +21,7 @@ uv run python scripts/prepare_data.py \
   --limit-docs 500 --workers 4 --skip-valid
 
 echo "== 4/5 训练 30 步(小模型) =="
-uv run python -m zerollm.run_training \
+uv run python -m zerolm.run_training \
   --experiment-name smoke --run-root experiments \
   --train-data data/smoke/zh_train.npy --valid-data data/smoke/zh_train.npy \
   --vocab-size 2000 --context-length 64 --d-model 128 --num-layers 2 --num-heads 4 --d-ff 256 \

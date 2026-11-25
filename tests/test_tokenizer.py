@@ -1,4 +1,4 @@
-"""zerollm.tokenizer 测试:roundtrip、special token、流式与批量等价、save/load。"""
+"""zerolm.tokenizer 测试:roundtrip、special token、流式与批量等价、save/load。"""
 
 import os
 import sys
@@ -8,8 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from zerollm.tokenizer import Tokenizer
-from zerollm.train_bpe import train_bpe
+from zerolm.tokenizer import Tokenizer
+from zerolm.train_bpe import train_bpe
 
 TEXT = """从前有一只小猫,它住在山谷里。每天早上,小猫都会去溪边喝水。
 有一天,它遇到了一只小狗,小狗说:“你好!”小猫回答:“你好!”
