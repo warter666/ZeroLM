@@ -117,10 +117,25 @@ figures/        loss 曲线等
 
 `scripts/sampling_experiment.py` 做对比实验:固定同一前缀与 RNG 种子,一次只动一个旋钮,
 统计连贯性(self_ppl / EOS 命中率 / 有效字符率)、多样性(distinct-1/2/3)、
-重复模式(重复 4-gram 占比 / max 4-gram 频次),输出 `metrics.csv`、`samples.md` 和三旋钮曲线图。
+重复模式(重复 4-gram 占比 / max 4-gram 频次),另计「平均保留候选数 ± std」作为
+“数量固定 vs 数量自适应”的直接证据。输出 `metrics.csv`、`samples.md` 与三旋钮曲线图。
 
-结论模板(对本仓库 checkpoint 实测后填):对这个 checkpoint,top-p 比固定 top-k 更灵活,
-temperature 到 2.0 就基本崩坏。
+### 实测结论(checkpoint `zh-1ep`,step 31000,val 2.2711)
+
+完整报告与样例见 [`notes/sampling.md`](notes/sampling.md)。三句话:
+
+1. **temperature 改的是分布形状**。候选数 6212±2103(t=0.5)→ 10000±0.3(t=2.0),
+   而 `self_ppl` 从 3.23 爆到 18424;`t=1.6` 时 EOS 命中率已从 1.00 掉到 0.73,
+   **`t=2.0` 只剩 0.13,输出退化成词沙拉**。
+2. **top-k 改的是候选数量且固定**。k=1→1000 时候选数恒等于 k、**std 全程 0.0**,
+   全档 EOS 命中 1.00(从不崩坏);但 k 从 200 加到 1000 时 distinct-2 不动(0.962),
+   `self_ppl` 却从 9.95 涨到 11.77 —— 固定数量在分布变尖的地方白送概率质量。
+3. **top-p 改的是候选数量且自适应**。p=0.9 时候选数 147.6**±109.9**(波动 74%),
+   p=0.99 时 1795.3±756.3;同样不崩坏(EOS 1.00)。达到相同多样性时更省:
+   p=0.9 用 148 个候选拿到 distinct-2 0.952 / ppl 9.31,而 top-k=1000 用 1000 个候选
+   才拿到 0.962 / ppl 11.77。
+
+因此默认配方是 `temperature=1.0 + top_p=0.95`(见 `generate.py`),只在需要硬约束时用 top-k。
 
 ## 参考与致谢
 

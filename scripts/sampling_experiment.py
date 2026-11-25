@@ -173,16 +173,19 @@ def main() -> None:
             kwargs.setdefault("top_p", 1.0)
             kwargs.setdefault("top_k", None)
 
-            agg = {"d1": [], "d2": [], "d3": [], "rep4": [], "mx4": [], "ppl": [], "eos": [], "valid": []}
+            agg = {"d1": [], "d2": [], "d3": [], "rep4": [], "mx4": [], "ppl": [], "eos": [], "valid": [],
+                   "cand": [], "cand_std": []}
             texts_for_examples: list[str] = []
             for prompt in prompts:
                 # 同一个 cell 的同一个 prompt 用固定种子,跨 cell 可比
                 torch.manual_seed(args.seed)
-                ids_batch, lens = generate_ids(
+                ids_batch, lens, stats = generate_ids(
                     [prompt] * args.num_samples, model, tok,
                     device=args.device, context_size=config["context_length"],
                     max_new_tokens=args.max_new_tokens, eos_id=eos_id, **kwargs,
                 )
+                agg["cand"].append(stats["avg_candidates"])
+                agg["cand_std"].append(stats["std_candidates"])
                 for ids, plen in zip(ids_batch, lens, strict=True):
                     cont = ids[plen:]
                     if eos_id is not None and eos_id in cont:
@@ -222,12 +225,15 @@ def main() -> None:
                 "eos_rate": round(mean("eos"), 3),
                 "valid_char_rate": round(mean("valid"), 4),
                 "samples": len(agg["d1"]),
+                "avg_candidates": round(mean("cand"), 2),
+                "std_candidates": round(mean("cand_std"), 2),
             }
             rows.append(row)
             examples[(knob, value)] = texts_for_examples
             print(
                 f"{knob:11s} = {value:<6} d2 {row['distinct_2']:.3f} rep4 {row['rep4_rate']:.3f} "
-                f"ppl {row['self_ppl']:8.2f} eos {row['eos_rate']:.2f} valid {row['valid_char_rate']:.3f}"
+                f"cand {row['avg_candidates']:6.1f}±{row['std_candidates']:5.1f} ppl {row['self_ppl']:8.2f} "
+                f"eos {row['eos_rate']:.2f} valid {row['valid_char_rate']:.3f}"
             )
         print()
 
@@ -248,11 +254,12 @@ def main() -> None:
     for knob in SWEEPS:
         sub = [r for r in rows if r["knob"] == knob]
         md.append(f"\n## {knob}\n\n")
-        md.append("| 值 | distinct-2 | rep4_rate | max 4-gram 频次 | self_ppl | EOS 命中率 | 有效字符率 |\n")
-        md.append("| --- | --- | --- | --- | --- | --- | --- |\n")
+        md.append("| 值 | 平均保留候选数(±std) | distinct-2 | rep4_rate | max 4-gram 频次 | self_ppl | EOS 命中率 | 有效字符率 |\n")
+        md.append("| --- | --- | --- | --- | --- | --- | --- | --- |\n")
         for r in sub:
             md.append(
-                f"| {r['value']} | {r['distinct_2']:.3f} | {r['rep4_rate']:.3f} | "
+                f"| {r['value']} | {r['avg_candidates']:.1f} ± {r['std_candidates']:.1f} | "
+                f"{r['distinct_2']:.3f} | {r['rep4_rate']:.3f} | "
                 f"{r['max_ngram4_freq']:.1f} | {r['self_ppl']:.2f} | {r['eos_rate']:.2f} | "
                 f"{r['valid_char_rate']:.3f} |\n"
             )
@@ -270,6 +277,12 @@ def main() -> None:
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
+        # 中文标签需要 CJK 字体,否则图上全是豆腐块
+        plt.rcParams["font.sans-serif"] = [
+            "WenQuanYi Micro Hei", "Noto Sans CJK SC", "Source Han Sans SC", "DejaVu Sans",
+        ]
+        plt.rcParams["axes.unicode_minus"] = False
     except ImportError:
         print("没有 matplotlib,跳过画图")
         return
@@ -280,6 +293,8 @@ def main() -> None:
         ax.plot(xs, [r["distinct_2"] for r in sub], "o-", label="distinct-2 ↑多样性")
         ax.plot(xs, [r["rep4_rate"] for r in sub], "s-", label="rep4_rate ↑重复")
         ax2 = ax.twinx()
+        ax2.plot(xs, [r["avg_candidates"] for r in sub], "d:", color="tab:green",
+                 label="平均保留候选数")
         ax2.plot(xs, [r["self_ppl"] for r in sub], "^--", color="gray", label="self_ppl ↓自洽")
         ax.set_xlabel(knob)
         ax.set_title(f"{knob} 扫描")

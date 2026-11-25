@@ -27,10 +27,12 @@ def generate_ids(
     top_p: float = 0.95,
     top_k: int | None = None,
     eos_id: int | None = None,
-) -> tuple[list[list[int]], list[int]]:
-    """采样续写,返回 (每个序列的完整 id 列表, 各自 prompt 的 token 长度)。
+) -> tuple[list[list[int]], list[int], dict[str, float]]:
+    """采样续写,返回 (每个序列的完整 id 列表, 各自 prompt 的 token 长度, 统计)。
 
     拿到 prompt 长度就能切出"纯续写"部分做统计,不必反解字符串。
+    stats 里 `avg_candidates` / `std_candidates` = 每步保留的候选 token 数的均值与标准差,
+    用来实证 "top-k 固定数量 / top-p 自适应数量":top-k 的 std 恒为 0,top-p 显著大于 0。
     """
     assert temperature > 0, "temperature 必须 > 0"
     assert 0 < top_p <= 1.0, "top_p 必须落在 (0, 1]"
@@ -48,6 +50,7 @@ def generate_ids(
         ids[i, : len(e)] = torch.tensor(e, dtype=torch.long, device=device)
     lengths = [len(e) for e in encoded]
     finished = torch.zeros(len(encoded), dtype=torch.bool, device=device)
+    kept_counts: list[float] = []
 
     model.eval()
     for _ in range(max_new_tokens):
@@ -64,6 +67,7 @@ def generate_ids(
         cum = torch.cumsum(sorted_probs, dim=-1)
         cutoff = cum - sorted_probs  # 该 token 之前的累计概率
         sorted_probs = sorted_probs * (cutoff < top_p)
+        kept_counts.append(float((sorted_probs > 0).sum(dim=-1).float().mean()))
         sorted_probs = sorted_probs / sorted_probs.sum(dim=-1, keepdim=True).clamp_min(1e-12)
         next_sorted = torch.multinomial(sorted_probs, num_samples=1)  # [B,1]
         next_ids = sorted_idx.gather(1, next_sorted)  # [B,1]
@@ -75,7 +79,11 @@ def generate_ids(
                 break
 
     out = [ids[i, : lengths[i] + max_new_tokens].tolist() for i in range(len(prompt_list))]
-    return out, lengths
+    n_kept = kept_counts or [0.0]
+    mean_kept = sum(n_kept) / len(n_kept)
+    var = sum((x - mean_kept) ** 2 for x in n_kept) / len(n_kept)
+    stats = {"avg_candidates": mean_kept, "std_candidates": var**0.5}
+    return out, lengths, stats
 
 
 def generate(
@@ -91,7 +99,7 @@ def generate(
     eos_id: int | None = None,
 ) -> list[str]:
     """给一个或多个 prompt 续写;返回解码后的完整文本(含 prompt)。"""
-    ids, _ = generate_ids(
+    ids, _, _stats = generate_ids(
         prompts, model, tokenizer,
         device=device, context_size=context_size, max_new_tokens=max_new_tokens,
         temperature=temperature, top_p=top_p, top_k=top_k, eos_id=eos_id,
