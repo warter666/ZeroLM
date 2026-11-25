@@ -20,8 +20,26 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib import font_manager  # noqa: E402
 
 COLORS = ["#2b6cb0", "#c05621", "#2f855a", "#805ad5", "#b83280"]
+
+# 上图默认用英文标签(可移植);只有环境里真装了中文字体时才用中文,
+# 否则中文图例会渲染成方框。
+CJK_FONTS = ["WenQuanYi Micro Hei", "Noto Sans CJK SC", "Source Han Sans SC", "SimHei"]
+
+
+def has_cjk_font() -> bool:
+    try:
+        installed = {f.name for f in font_manager.fontManager.ttflist}
+    except Exception:  # noqa: BLE001
+        return False
+    for name in CJK_FONTS:
+        if name in installed:
+            matplotlib.rcParams["font.sans-serif"] = [name, *matplotlib.rcParams["font.sans-serif"]]
+            matplotlib.rcParams["axes.unicode_minus"] = False
+            return True
+    return False
 
 
 def ema(values: list[float], alpha: float) -> list[float]:
@@ -64,7 +82,14 @@ def main() -> None:
     ap.add_argument("--smooth", type=float, default=0.9, help="train 曲线 EMA 平滑系数,0=不平滑")
     ap.add_argument("--log-x", action="store_true", help="x 轴用 log 刻度")
     ap.add_argument("--no-lr", action="store_true", help="不画下面的学习率子图")
+    ap.add_argument("--valid-only", action="store_true", help="只画 valid 曲线(消融对比用)")
+    ap.add_argument("--label", nargs="+", default=None, help="每个 run 的图例名,个数须与 --run-dir 一致")
+    ap.add_argument("--title", default=None, help="图标题(默认自动生成)")
+    ap.add_argument("--xlim", nargs=2, type=float, default=None, metavar=("LO", "HI"), help="x 轴范围")
+    ap.add_argument("--ylim", nargs=2, type=float, default=None, metavar=("LO", "HI"), help="y 轴范围")
     args = ap.parse_args()
+    if not has_cjk_font():
+        print("提示:未找到中文字体,中文图例会显示为方框;请用英文 --label")
 
     runs = []
     for d in args.run_dir:
@@ -72,6 +97,9 @@ def main() -> None:
         if not path.exists():
             raise SystemExit(f"找不到 {path}")
         runs.append((Path(d).name, read_metrics(path)))
+    labels = list(args.label) if args.label else [name for name, _ in runs]
+    if len(labels) != len(runs):
+        raise SystemExit(f"--label 给了 {len(labels)} 个,但 --run-dir 有 {len(runs)} 个")
 
     n_panel = 1 if args.no_lr else 2
     fig, axes = plt.subplots(
@@ -80,13 +108,13 @@ def main() -> None:
     ax = axes[0] if n_panel > 1 else axes
     ax_lr = None if args.no_lr else axes[1]
 
-    for i, (name, splits) in enumerate(runs):
+    for i, (_, splits) in enumerate(runs):
         color = COLORS[i % len(COLORS)]
         train = splits.get("train", [])
         valid = splits.get("valid", [])
-        label = name if len(runs) > 1 else ""
+        label = labels[i] if len(runs) > 1 else ""
 
-        if train:
+        if train and not args.valid_only:
             xs = [p[0] for p in train]
             ys = [p[1] for p in train]
             ax.plot(xs, ys, color=color, alpha=0.25, linewidth=0.8)
@@ -98,10 +126,14 @@ def main() -> None:
             ax.plot(xs, ys, color=color, marker="o", markersize=3.5, linewidth=1.4,
                     label=f"{label} valid".strip() if valid else None)
             best_step = min(valid, key=lambda p: p[1])
+            # 标注靠近右边缘时往左摆,否则文字会被画布切掉
+            near_right = best_step[0] > 0.7 * max(p[0] for p in valid)
             ax.annotate(
                 f"best {best_step[1]:.4f} @ {best_step[0]}",
                 xy=(best_step[0], best_step[1]),
-                xytext=(8, 8), textcoords="offset points",
+                xytext=(-8 if near_right else 8, 8),
+                textcoords="offset points",
+                horizontalalignment="right" if near_right else "left",
                 fontsize=8, color=color,
                 arrowprops={"arrowstyle": "-", "color": color, "lw": 0.8},
             )
@@ -112,16 +144,24 @@ def main() -> None:
             ax_lr.plot([p[0] for p in train], [p[2] for p in train], color=color, linewidth=0.8, alpha=0.6)
 
     ax.set_ylabel("cross-entropy loss")
-    ax.set_title("ZeroLLM loss" + (f" — {', '.join(r[0] for r in runs)}" if len(runs) > 1 else ""))
+    if args.title:
+        ax.set_title(args.title)
+    else:
+        ax.set_title("ZeroLM valid loss" if args.valid_only else "ZeroLM loss")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8)
     if args.log_x:
         ax.set_xscale("log")
+    if args.xlim:
+        ax.set_xlim(*args.xlim)
+    if args.ylim:
+        ax.set_ylim(*args.ylim)
     if ax_lr is not None:
         ax_lr.set_ylabel("learning rate")
         ax_lr.grid(alpha=0.3)
         ax_lr.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
-    axes[-1].set_xlabel("step")
+    # n_panel==1 时 subplots 返回单个 Axes,不能下标
+    (axes[-1] if n_panel > 1 else ax).set_xlabel("step")
 
     out = Path(args.out) if args.out else Path("figures") / f"{runs[0][0]}.png"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -129,12 +169,12 @@ def main() -> None:
     fig.savefig(out, dpi=150)
     print(f"已保存 {out}")
 
-    for name, splits in runs:
+    for i, (_, splits) in enumerate(runs):
         valid = splits.get("valid", [])
         train = splits.get("train", [])
         if valid:
             best = min(valid, key=lambda p: p[1])
-            print(f"{name}: train 点 {len(train)} 个, valid 点 {len(valid)} 个, "
+            print(f"{labels[i]}: train 点 {len(train)} 个, valid 点 {len(valid)} 个, "
                   f"best valid {best[1]:.4f} @ {best[0]}, 末次 valid {valid[-1][1]:.4f}")
 
 
