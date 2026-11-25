@@ -20,7 +20,9 @@ jobs:
       # 注意不要加 --locked / --frozen:uv.lock 里的 torch 记录的是 PyPI 源,
       # 强制锁死会拒绝换成 CPU 轮子。
       - name: 安装依赖(CPU 版 torch)
-        run: uv sync --group dev --extra-index-url https://download.pytorch.org/whl/cpu
+        run: >-
+          uv sync --group dev
+          --extra-index-url https://download.pytorch.org/whl/cpu
 
       # --no-sync:避免 uv run 重新解析依赖、把 CPU 版 torch 换回 CUDA 版
       - name: 跑测试
