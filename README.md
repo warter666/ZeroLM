@@ -17,7 +17,7 @@ From zero to LLM:从零开始(不依赖任何框架内置的 Transformer 实现)
 每个模块独立成文件、独立成测试,对应 CS336 assignment1 的组件划分:
 
 | 模块 | 文件 | 内容 |
-| --- | --- | --- |
+| ---------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | BPE 训练 | `zerollm/train_bpe.py` | 字节级 BPE:词型频次统计、增量合并、tie-break 规则(实现思路参考 Karpathy 的 [minbpe](https://github.com/karpathy/minbpe)) |
 | 分词器 | `zerollm/tokenizer.py` | encode / 流式 encode_iterable / decode,special token 处理 |
 | 模型 | `zerollm/model.py` | Linear / Embedding / RMSNorm / SwiGLU / RoPE / causal MHA / pre-norm Block / TransformerLM |
@@ -31,7 +31,7 @@ From zero to LLM:从零开始(不依赖任何框架内置的 Transformer 实现)
 ## 默认模型规模
 
 | 超参 | 值 |
-| --- | --- |
+| -------------- | --------------------------------------------------- |
 | vocab size | 10000 |
 | context length | 256 |
 | d_model | 512 |
@@ -43,7 +43,7 @@ From zero to LLM:从零开始(不依赖任何框架内置的 Transformer 实现)
 参数量的账(实测 `model.num_parameters()`):
 
 | 组成 | 参数 |
-| --- | --- |
+| ---------------------------------------------- | ---------- |
 | token embedding | 5.12M |
 | lm_head(默认独立) | 5.12M |
 | 4 层 × (attn 1.05M + SwiGLU 2.06M + 2×RMSNorm) | 12.46M |
@@ -115,7 +115,7 @@ figures/        loss 曲线等
 本地 RTX 4060 Laptop(8GB)跑完 **1 个 epoch / 31,000 步 / 254.1M tokens**,耗时 45 分钟(87 ms/step)。
 
 | 指标 | 值 |
-| --- | --- |
+| --------------------- | --------------------------- |
 | 初始 loss | 9.25(≈ ln 10000,随机初始化) |
 | **best valid loss** | **2.2711 @ step 28,500** |
 | 末次 valid loss | 2.2813 |
@@ -154,7 +154,7 @@ figures/        loss 曲线等
 `zerollm/generating.py` 支持三个旋钮,作用和调节方式不同:
 
 | 旋钮 | 改什么 | 特点 |
-| --- | --- | --- |
+| ----------- | -------------------------------------------- | ------------------------------------------------ |
 | temperature | 分布**形状**:`logits / t`,t<1 变尖、t>1 变平 | 同时影响候选集合大小和相对概率 |
 | top-k | **候选数量固定**为 k 个 | 不随分布形状变化,分布很尖时仍会带上 k−1 个坏候选 |
 | top-p | 保留累计概率达到 p 的**最小集合** | 候选数量自适应:分布尖时少、平时多 |
@@ -210,7 +210,7 @@ figures/        loss 曲线等
 实测(同一前缀、固定种子、交替跑取中位数;`uv run python scripts/bench_generate.py`):
 
 | 配置 | 无 cache | 有 cache | 加速 |
-| --- | --- | --- | --- |
+| ----------------- | -------- | -------- | --------- |
 | CPU,B=1,200 token | 8.46s | 2.20s | **3.85×** |
 | CPU,B=5,200 token | 29.63s | 3.56s | **8.33×** |
 
