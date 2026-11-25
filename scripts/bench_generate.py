@@ -73,18 +73,28 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--top-p", type=float, default=0.95)
     ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--compile", action="store_true",
+                    help="用 torch.compile 包装模型。不编译时每步的 CPU 派发开销远大于 GPU 计算,"
+                         "cache 省下的计算会被淹没;想看 cache 的真实收益必须加这个")
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir)
-    model, tok, config = load_run(run_dir, args.device)
+    raw_model, tok, config = load_run(run_dir, args.device)
+    model: torch.nn.Module = raw_model
     ctx = config["context_length"]
     prompts = [args.prompt] * args.batch
+
+    if args.compile:
+        # mode=default 而非 reduce-overhead:带 cache 时每个 token 的序列长度都不同,
+        # CUDA Graphs 会把图覆盖掉并报 "output overwritten by a subsequent run"。
+        model = torch.compile(model, mode="default")  # type: ignore[assignment]
+        print("已启用 torch.compile(mode=default)")
 
     if args.device.startswith("cuda"):
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize()
 
-    print(f"run {run_dir.name}: {model.num_parameters()/1e6:.2f}M 参数, "
+    print(f"run {run_dir.name}: {raw_model.num_parameters()/1e6:.2f}M 参数, "
           f"ctx {ctx}, device {args.device}")
     print(f"配置: B={args.batch} × {args.max_new_tokens} token, top_p={args.top_p}, "
           f"seed={args.seed}, {args.repeats} 次取中位数\n")
