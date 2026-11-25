@@ -2,7 +2,37 @@
 
 > 最新在最上面。每条写清「做了什么 / 当前状态 / 下一步 / 坑」。
 
-## 2026-11-24 深夜 · 数据全跑完 + 本地训到 28200 步(自动暂停)
+## 2026-11-25 · 训练完成 1 epoch,采样实验与结论落地
+
+**做了什么**
+- 续训到 **31000 步(= 1 epoch,254.1M tokens)**:`best valid 2.2711 @ 28500`,末次 2.2813。
+- 采样旋钮实验(替代之前的“模板”):`scripts/sampling_experiment.py` 三组扫描 × 3 前缀 × 5 样本,
+  固定 seed。给 `generate_ids` 加了 `avg_candidates / std_candidates` 两个统计
+  —— 这是“top-k 数量固定 / top-p 数量自适应”的直接证据(top-k 全档 std=0.0)。
+- 结论写进 `notes/sampling.md`(完整报告 + 样例)和 README「采样旋钮实验」节:
+  - temperature 改**形状**:候选数 6212→10000,`self_ppl` 3.23→18424;`t=1.6` EOS 命中率掉到 0.73,`t=2.0` 只剩 0.13(崩坏)。
+  - top-k 改**数量且固定**:候选数恒等于 k、std 0.0,全档 EOS 1.00;但 k 200→1000 时 distinct-2 不涨(0.962),ppl 9.95→11.77。
+  - top-p 改**数量且自适应**:p=0.9 候选数 147.6±109.9(波动 74%),p=0.99 为 1795±756;同样不崩坏。
+    相同多样性下更省:top-p=0.9(148 候选/d2 0.952/ppl 9.31) vs top-k=1000(1000 候选/d2 0.962/ppl 11.77)。
+- `generate.py` 实测生成:连贯中文故事 + 正常 EOS 收尾,验收标准 5 达成。
+- 修 `run_training` 续训时 tok/s 虚高(用了绝对 step,改成 `step - start_step`)。
+
+**当前状态**
+- **全流程已跑完**:语料 → BPE(5.96 B/token)→ 254.1M tokens → 1 epoch 训练(val 2.2711)→ 生成 → loss 曲线 → 采样实验与结论。
+- 产物:`experiments/zh-1ep/`(checkpoint 31000)、`figures/`(loss + 三旋钮曲线)、`notes/sampling.md`。
+
+**下一步(可选)**
+1. 画 loss 曲线:`python scripts/plot_loss.py --run-dir experiments/zh-1ep`(已跑过一次,可重画)。
+2. 继续训更多 epoch / 加大模型:4060 上 1 epoch 约 45 分钟;要更快的迭代就上 A10
+   (`bash scripts/upload_data.sh <user>@<host>:~/ZeroLLM` 只传 0.5GB,云端 `train_cloud_sys.sh train`)。
+3. `--tie-embeddings`(17.58M)做一次消融对比。
+
+**坑**
+- 续训必须保持 `--num-iters` / `--sdpa` / `--compile` 与首段一致,否则 LR 曲线断、state_dict 前缀对不上。
+- matplotlib 画中文要显式设 `font.sans-serif`(WenQuanYi Micro Hei),否则全是豆腐块 —— 已在脚本里设好。
+- `self_ppl` 天然偏爱重复文本,必须和 distinct-n 一起看(反例:top-k=1 贪心 ppl 2.37 最低但多样性也最低)。
+
+## 2026-11-24 深夜 · 数据全跑完 + 本地训到 28200 步(后续已续完,见上条)
 
 **做了什么**
 - 语料:3 个 parquet(842MB)→ `data/zh_train.txt`(1.5GB,197.4 万篇)+ `zh_valid.txt`(15MB,2 万篇),20 秒。

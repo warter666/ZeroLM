@@ -183,7 +183,8 @@ def main(args: argparse.Namespace) -> None:
 
         elapsed = time.time() - t0
         if step % args.log_interval == 0 or step == 1:
-            tok_s = step * args.batch_size * args.context_length / max(elapsed, 1e-9)
+            # 续训时 elapsed 从 0 重新计,吞吐要用本次跑的步数,不能用绝对 step
+            tok_s = (step - start_step) * args.batch_size * args.context_length / max(elapsed, 1e-9)
             print(
                 f"step {step:6d} | loss {loss.item():.4f} | lr {lr:.2e} "
                 f"| gn {float(grad_norm):.2f} | {tok_s/1e3:.1f}k tok/s | {elapsed:.0f}s",
