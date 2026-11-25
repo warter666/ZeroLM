@@ -33,6 +33,7 @@ class TestCrossEntropy:
         logits = torch.randn(2, 5, requires_grad=True)
         targets = torch.randint(0, 5, (2,))
         cross_entropy(logits, targets).backward()
+        assert logits.grad is not None, "backward() 后梯度不应为 None"
         assert torch.isfinite(logits.grad).all()
 
 

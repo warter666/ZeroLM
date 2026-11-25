@@ -33,6 +33,18 @@ _worker_tok: Tokenizer | None = None
 _worker_path: str | None = None
 
 
+def _open_bin(path, mode: str):
+    """打开文件,把 OSError 转成带路径的 SystemExit。
+
+    数据预处理会跑几十分钟,中途单个文件读失败时给一条能看懂的报错,
+    比裸 traceback 好得多。
+    """
+    try:
+        return open(path, mode)
+    except OSError as e:
+        raise SystemExit(f"打不开 {path}: {e}") from e
+
+
 def _init_worker(vocab_path: str, merges_path: str, special_tokens: list[str], text_path: str) -> None:
     global _worker_tok, _worker_path
     _worker_tok = Tokenizer.from_files(vocab_path, merges_path, special_tokens)
@@ -41,8 +53,9 @@ def _init_worker(vocab_path: str, merges_path: str, special_tokens: list[str], t
 
 def _encode_range(span: tuple[int, int]) -> list[int]:
     assert _worker_tok is not None
+    assert _worker_path is not None, "worker 未初始化:_worker_path 还没设置"
     start, end = span
-    with open(_worker_path, "rb") as f:
+    with _open_bin(_worker_path, "rb") as f:
         f.seek(start)
         data = f.read(end - start)
     text = data.decode("utf-8")
@@ -53,24 +66,29 @@ def _encode_range(span: tuple[int, int]) -> list[int]:
 def _doc_spans(path: Path) -> list[tuple[int, int]]:
     """扫描文档边界(不把文件读进内存)。"""
     spans: list[tuple[int, int]] = []
-    with open(path, "rb") as f:
-        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-        pos = 0
-        n = len(mm)
-        while pos < n:
-            idx = mm.find(EOT_BYTES, pos)
-            if idx == -1:
-                spans.append((pos, n))
-                break
-            spans.append((pos, idx + len(EOT_BYTES)))
-            pos = idx + len(EOT_BYTES)
-        mm.close()
+    try:
+        with open(path, "rb") as f:
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            try:
+                pos = 0
+                n = len(mm)
+                while pos < n:
+                    idx = mm.find(EOT_BYTES, pos)
+                    if idx == -1:
+                        spans.append((pos, n))
+                        break
+                    spans.append((pos, idx + len(EOT_BYTES)))
+                    pos = idx + len(EOT_BYTES)
+            finally:
+                mm.close()
+    except OSError as e:
+        raise SystemExit(f"读不了语料 {path}: {e}") from e
     return spans
 
 
 def _finalize(bin_path: Path, npy_path: Path, dtype: str) -> None:
     n_tokens = bin_path.stat().st_size // np.dtype(dtype).itemsize
-    with open(bin_path, "rb") as src, open(npy_path, "wb") as out:
+    with _open_bin(bin_path, "rb") as src, _open_bin(npy_path, "wb") as out:
         header = {"descr": np.dtype(dtype).str, "fortran_order": False, "shape": (n_tokens,)}
         np.lib.format.write_array_header_1_0(out, header)
         shutil.copyfileobj(src, out, length=1 << 22)
@@ -105,15 +123,21 @@ def encode_split(
     done_docs = 0
     done_tokens = 0
     if state_path.exists() and bin_path.exists():
-        st = json.loads(state_path.read_text())
-        done_docs = int(st["docs"])
-        done_tokens = int(st["tokens"])
+        try:
+            st = json.loads(state_path.read_text())
+            done_docs = int(st["docs"])
+            done_tokens = int(st["tokens"])
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            raise SystemExit(f"断点状态 {state_path} 不可用: {e}") from e
         # 回滚到上次落盘状态
-        with open(bin_path, "r+b") as f:
+        with _open_bin(bin_path, "r+b") as f:
             f.truncate(done_tokens * itemsize)
         print(f"续跑:已完成 {done_docs}/{total} 篇,{done_tokens/1e6:.1f}M tokens")
     else:
-        bin_path.write_bytes(b"")
+        try:
+            bin_path.write_bytes(b"")
+        except OSError as e:
+            raise SystemExit(f"无法创建 {bin_path}: {e}") from e
 
     if done_docs >= total:
         if not npy_path.exists():
@@ -126,7 +150,7 @@ def encode_split(
     typecode = {"uint16": "H", "uint32": "I"}[dtype]
 
     with Pool(workers, initializer=_init_worker, initargs=(vocab_path, merges_path, special_tokens, str(src))) as pool:
-        with open(bin_path, "ab") as fout, tqdm(total=total - done_docs, desc=name, unit="doc") as bar:
+        with _open_bin(bin_path, "ab") as fout, tqdm(total=total - done_docs, desc=name, unit="doc") as bar:
             pending_since_flush = 0
             for batch_start in range(done_docs, total, batch_docs):
                 batch = spans[batch_start : batch_start + batch_docs]
@@ -142,8 +166,11 @@ def encode_split(
 
                 if pending_since_flush >= flush_docs or done_docs >= total:
                     tmp = state_path.with_suffix(".json.tmp")
-                    tmp.write_text(json.dumps({"docs": done_docs, "tokens": done_tokens}))
-                    tmp.replace(state_path)
+                    try:
+                        tmp.write_text(json.dumps({"docs": done_docs, "tokens": done_tokens}))
+                        tmp.replace(state_path)
+                    except OSError as e:
+                        raise SystemExit(f"写不了断点状态 {state_path}: {e}") from e
                     pending_since_flush = 0
 
     if not npy_path.exists():

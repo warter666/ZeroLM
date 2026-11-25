@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from zerolm.tokenizer import DEFAULT_PATTERN, Tokenizer
+from zerolm.tokenizer import Tokenizer
 from zerolm.train_bpe import train_bpe
 
 SPECIAL_TOKENS = ["<|endoftext|>"]
