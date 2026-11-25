@@ -105,6 +105,33 @@ figures/        loss 曲线等
 - 加速:`--sdpa`(flash 内核)与 `--compile`,见上节实测
 - 评估:每 500 步在验证集上算 loss(20 个 batch),与 train loss 一并写入 `metrics.csv`
 
+## 训练结果
+
+本地 RTX 4060 Laptop(8GB)跑完 **1 个 epoch / 31,000 步 / 254.1M tokens**,耗时 45 分钟(87 ms/step)。
+
+| 指标 | 值 |
+| --- | --- |
+| 初始 loss | 9.25(≈ ln 10000,随机初始化) |
+| **best valid loss** | **2.2711 @ step 28,500** |
+| 末次 valid loss | 2.2813 |
+| 参数量 | 22.70M(不绑定 embedding) |
+| 词表 / 上下文 | 10000 / 256 |
+
+![loss 与学习率曲线](figures/zh-1ep.png)
+
+上:train(细线原始 + 粗线 EMA)与 valid(点线,best 已标注);下:cosine 学习率,200 步 warmup 到 3e-4 后衰减到 3e-5。
+曲线无发散、无尖尖,valid 全程在 train 下方 —— 1 个 epoch 没有过拟合迹象。
+
+重画方式:`python scripts/plot_loss.py --run-dir experiments/zh-1ep`(支持多个 run 叠画对比)。
+
+生成效果(`temperature=0.8, top_p=0.95`,前缀“从前”):
+
+```text
+从前，有一只懒猫，名叫胡须。胡须喜欢玩他的球。有一天，他去公园玩球。但当他到达那里时，
+他看到了一些奇怪的事情。球开始腐烂。胡须去找他的朋友，一只名叫 Tweetie 的小鸟……
+胡须很伤心，但他了解到他应该听妈妈的话，不要玩腐烂的东西。<|endoftext|>
+```
+
 ## 采样旋钮实验
 
 `zerollm/generating.py` 支持三个旋钮,作用和调节方式不同:
@@ -136,6 +163,12 @@ figures/        loss 曲线等
    才拿到 0.962 / ppl 11.77。
 
 因此默认配方是 `temperature=1.0 + top_p=0.95`(见 `generate.py`),只在需要硬约束时用 top-k。
+
+![三旋钮扫描](figures/sampling_zh-1ep.png)
+
+从左到右依次为 temperature / top-k / top_p 扫描。绿点虚线是**平均保留候选数**:
+中图是完美直线(top-k 数量固定),右图先平后翘(top-p 自适应),左图随温度升高跑满词表。
+灰虚线 `self_ppl` 在 temperature 图的右端直接爬出屏幕 —— 那就是崩坏。
 
 ## 参考与致谢
 
