@@ -79,7 +79,10 @@ uv run python scripts/generate.py --run-dir experiments/<name> --prompt "从前"
 # 6. 画 loss 曲线(读 metrics.csv)
 uv run python scripts/plot_loss.py --run-dir experiments/<name>
 
-# 7. 采样旋钮对比实验(temperature / top-k / top-p)
+# 7. 汇总指标(best valid / bits per byte)
+uv run python scripts/report.py --run-dir experiments/<name>
+
+# 8. 采样旋钮对比实验(temperature / top-k / top-p)
 uv run python scripts/sampling_experiment.py --run-dir experiments/<name>
 ```
 
@@ -116,6 +119,18 @@ figures/        loss 曲线等
 | 末次 valid loss | 2.2813 |
 | 参数量 | 22.70M(不绑定 embedding) |
 | 词表 / 上下文 | 10000 / 256 |
+| bits/token | 3.2765 |
+| bytes/token(语料实测) | 5.9178 |
+| **bits/byte** | **0.5537** |
+
+> 为什么报 bits/byte:val loss 是「每 token 的交叉熵(nats)」,换个词表大小这个数就变(词表越大,
+> 同一段文本的 token 越少、每 token loss 通常越大),所以它**不能**跨分词器比较 —— 参考仓库的
+> 英文 val 1.36 与本仓库的中文 2.2711 并不是同一把尺子。
+> 折算:`bits/byte = loss / ln2 / (语料字节数 / token 数)`,
+> 本仓库 = 2.2711 / 0.6931 / 5.9178 = **0.5537**,含义是每字节原始中文只需 0.55 bit 编码
+> (等价于把字节压缩了 14.45 倍)。报任何“比英文好/差”的结论前,都应该先算到这个口径。
+>
+> `uv run python scripts/report.py --run-dir experiments/zh-1ep` 可一键重算。
 
 ![loss 与学习率曲线](figures/zh-1ep.png)
 
@@ -169,6 +184,11 @@ figures/        loss 曲线等
 从左到右依次为 temperature / top-k / top_p 扫描。绿点虚线是**平均保留候选数**:
 中图是完美直线(top-k 数量固定),右图先平后翘(top-p 自适应),左图随温度升高跑满词表。
 灰虚线 `self_ppl` 在 temperature 图的右端直接爬出屏幕 —— 那就是崩坏。
+
+## 许可
+
+代码 MIT([LICENSE](LICENSE))。语料 [TinyStories-Zh-2M](https://huggingface.co/datasets/RobinChen2001/TinyStories-Zh-2M) 亦为 MIT;
+原始英文 [TinyStories](https://arxiv.org/abs/2305.07759) 语料的许可请见其数据集页。
 
 ## 参考与致谢
 
